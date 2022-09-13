@@ -1,0 +1,31 @@
+# https://taskfile.dev
+
+version: '3'
+
+tasks:
+  default:
+    cmds: 
+      - task -l
+  dev:provision:
+    desc: "sets up the workspace"
+    cmds:
+      - go mod download
+  test:
+    desc: "Runs unit tests"
+    cmds:
+      - go test -v ./...
+  lint:goreportcard:
+    desc: "Runs goreportcard"
+    cmds:
+      - goreportcard-cli -v
+    silent: true
+  lint:gofmt:
+    desc: "Runs gofmt with -s -w"
+    cmds:
+      - gofmt -s -w .
+    silent: true
+  lint:golangci:
+    desc: "Runs golang ci linter"
+    cmds:
+      - golangci-lint --verbose run
+    silent: true
