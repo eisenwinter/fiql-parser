@@ -3,11 +3,38 @@ package fiqlparser
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func ExampleParse() {
+	res, err := Parse("column==value")
+	if err != nil {
+		return
+	}
+	json, _ := json.Marshal(&res)
+	fmt.Printf("%s", json)
+	// Output:
+	// {"Type":"Expr","Operator":"","Nodes":[{"Type":"Binary","Operator":"==","Nodes":[{"Type":"Const","Value":"column"},{"Type":"Const","Value":"value"}]}]}
+}
+
+type testVisitor struct {
+	sb strings.Builder
+}
+
+func (t *testVisitor) VisitGroupEntered()                       { t.sb.WriteString("(") }
+func (t *testVisitor) VisitGroupLeft()                          { t.sb.WriteString(")") }
+func (t *testVisitor) VisitOperator(operator OperatorDefintion) { t.sb.WriteString(string(operator)) }
+func (t *testVisitor) VisitSelector(selector string)            { t.sb.WriteString(selector) }
+func (t *testVisitor) VisitComparison(comparison ComparisonDefintion) {
+	t.sb.WriteString(string(comparison))
+}
+func (t *testVisitor) VisitArgument(argument string) { t.sb.WriteString(argument) }
+
+func (t *testVisitor) String() string { return t.sb.String() }
 
 func TestParse(t *testing.T) {
 	var values = []struct {
@@ -59,21 +86,6 @@ func TestParse(t *testing.T) {
 
 	}
 }
-
-type testVisitor struct {
-	sb strings.Builder
-}
-
-func (t *testVisitor) VisitGroupEntered()                       { t.sb.WriteString("(") }
-func (t *testVisitor) VisitGroupLeft()                          { t.sb.WriteString(")") }
-func (t *testVisitor) VisitOperator(operator OperatorDefintion) { t.sb.WriteString(string(operator)) }
-func (t *testVisitor) VisitSelector(selector string)            { t.sb.WriteString(selector) }
-func (t *testVisitor) VisitComparison(comparison ComparisonDefintion) {
-	t.sb.WriteString(string(comparison))
-}
-func (t *testVisitor) VisitArgument(argument string) { t.sb.WriteString(argument) }
-
-func (t *testVisitor) String() string { return t.sb.String() }
 
 func TestVisitor(t *testing.T) {
 	p := NewParser()

@@ -1,3 +1,13 @@
+// Package fiqlparser provides a simple fiql parser.
+//
+// The parser does not adhere 100% to the fiql spec
+// which can be found https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00.
+//
+// The main difference is that there is no support for unary expressions
+// and there are two custom comparison operators which are not part of the spec
+// =in= and =q=.
+// The parser produces a walkable AST which can be either iteratet with the walk function
+// or by using a visitor.
 package fiqlparser
 
 import (
@@ -48,22 +58,22 @@ const ComparisonEq ComparisonDefintion = "=="
 // ComparisonNeq not equal comparison
 const ComparisonNeq ComparisonDefintion = "<>"
 
-// ComparisonEq greater comparison
+// ComparisonGt greater comparison
 const ComparisonGt ComparisonDefintion = ">"
 
-// ComparisonEq less comparison
+// ComparisonLt less comparison
 const ComparisonLt ComparisonDefintion = "<"
 
-// ComparisonEq greater or equal comparison
+// ComparisonGte greater or equal comparison
 const ComparisonGte ComparisonDefintion = ">="
 
-// ComparisonEq less or equal comparison
+// ComparisonLte less or equal comparison
 const ComparisonLte ComparisonDefintion = "<="
 
-// ComparisonEq in comparison
+// ComparisonIn in comparison
 const ComparisonIn ComparisonDefintion = "in"
 
-// ComparisonEq query comparison
+// ComparisonQ query comparison
 const ComparisonQ ComparisonDefintion = "query"
 
 //Basically follow naming of https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00#section-3.2
@@ -171,6 +181,7 @@ func (e *Expression) String() string {
 	return b.String()
 }
 
+// Children returns the children of this expression
 func (e *Expression) Children() []Node {
 	return e.nodes
 }
@@ -474,6 +485,7 @@ func (p *Parser) build(parent Node) (Node, error) {
 
 }
 
+// Parse parses the supplied fiql and returns either a Expression or an error
 func (p *Parser) Parse(input string) (Expression, error) {
 	p.lex = &lexer{input, 0, 1, 0, ""}
 	exp := Expression{}
@@ -481,12 +493,12 @@ func (p *Parser) Parse(input string) (Expression, error) {
 	return exp, err
 }
 
-// NewParser returns a new figl parser
+// NewParser returns a new fiql parser
 func NewParser() *Parser {
 	return &Parser{}
 }
 
-// Parse instant parses the supplied figl
+// Parse instant parses the supplied fiql and returns either a Expression or an error
 func Parse(input string) (Expression, error) {
 	p := &Parser{}
 	return p.Parse(input)
