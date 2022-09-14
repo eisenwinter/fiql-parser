@@ -33,7 +33,9 @@ func (t *SimpleTestVisitor) VisitComparison(comparison ComparisonDefintion) {
 }
 
 // VisitArgument is called when an argument is visited
-func (t *SimpleTestVisitor) VisitArgument(argument string) { t.sb.WriteString(argument) }
+func (t *SimpleTestVisitor) VisitArgument(argument string, recommendedValueType ValueRecommendation) {
+	t.sb.WriteString(argument)
+}
 
 // String returns the colected data as string
 func (t *SimpleTestVisitor) String() string { return t.sb.String() }

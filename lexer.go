@@ -75,6 +75,18 @@ func isCompareToken(t tokenType) bool {
 	return false
 }
 
+func isNumberOrDateComparision(t tokenType) bool {
+	switch t {
+	case tokenCompareGt, tokenCompareLt, tokenCompareGte, tokenCompareLte:
+		return true
+	}
+	return false
+}
+
+func isInToken(t tokenType) bool {
+	return t == tokenComapreIn
+}
+
 func isLogicToken(t tokenType) bool {
 	return t == tokenAND || t == tokenOR
 }

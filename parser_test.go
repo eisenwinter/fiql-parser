@@ -32,7 +32,9 @@ func (t *testVisitor) VisitSelector(selector string)            { t.sb.WriteStri
 func (t *testVisitor) VisitComparison(comparison ComparisonDefintion) {
 	t.sb.WriteString(string(comparison))
 }
-func (t *testVisitor) VisitArgument(argument string) { t.sb.WriteString(argument) }
+func (t *testVisitor) VisitArgument(argument string, recommendedValueType ValueRecommendation) {
+	t.sb.WriteString(argument)
+}
 
 func (t *testVisitor) String() string { return t.sb.String() }
 
@@ -45,11 +47,13 @@ func TestParse(t *testing.T) {
 		{fiql: "column=q=value", stringOuput: "column query value", errorOutput: nil},
 		{fiql: "column==value", stringOuput: "column == value", errorOutput: nil},
 		{fiql: "column!=value", stringOuput: "column <> value", errorOutput: nil},
-		{fiql: "column=ge=value", stringOuput: "column >= value", errorOutput: nil},
-		{fiql: "column=le=value", stringOuput: "column <= value", errorOutput: nil},
-		{fiql: "column=gt=value", stringOuput: "column > value", errorOutput: nil},
-		{fiql: "column=lt=value", stringOuput: "column < value", errorOutput: nil},
-		{fiql: "column=in=value", stringOuput: "column in value", errorOutput: nil},
+		{fiql: "column=ge=1", stringOuput: "column >= 1", errorOutput: nil},
+		{fiql: "column=le=1", stringOuput: "column <= 1", errorOutput: nil},
+		{fiql: "column=gt=1.1", stringOuput: "column > 1.1", errorOutput: nil},
+		{fiql: "column=lt=100", stringOuput: "column < 100", errorOutput: nil},
+		{fiql: "column=lt=+100", stringOuput: "column < +100", errorOutput: nil},
+		{fiql: "column=lt=-100", stringOuput: "column < -100", errorOutput: nil},
+		{fiql: "column=in=[a]", stringOuput: "column in [a]", errorOutput: nil},
 		{fiql: "column=q=value", stringOuput: "column query value", errorOutput: nil},
 		{fiql: "column      ==        value", stringOuput: "column == value", errorOutput: nil},
 		{fiql: "updated=gt=2003-12-13T00:00:00Z", stringOuput: "updated > 2003-12-13T00:00:00Z", errorOutput: nil},
@@ -73,6 +77,12 @@ func TestParse(t *testing.T) {
 		{fiql: `
 		
 		)`, stringOuput: "", errorOutput: errors.New("ln:3:3 syntax error (invalid closing brace `)` )")},
+		{fiql: "column=ge=invalid", stringOuput: "", errorOutput: errors.New("ln:1:17 syntax error (got `invalid` but expected number or date or duration)")},
+		{fiql: "column=in=123", stringOuput: "", errorOutput: errors.New("ln:1:13 syntax error (got `123` but expected in clause [a*b*c])")},
+		{fiql: "column=le=P1.4Y2M", stringOuput: "column <= P1.4Y2M", errorOutput: nil},
+		{fiql: "column=le=+P5W", stringOuput: "column <= +P5W", errorOutput: nil},
+		{fiql: "column=le=-P5W", stringOuput: "column <= -P5W", errorOutput: nil},
+		{fiql: "column=lt=P3DT4H59M", stringOuput: "column < P3DT4H59M", errorOutput: nil},
 	}
 	for _, v := range values {
 		res, err := Parse(v.fiql)
@@ -94,6 +104,75 @@ func TestVisitor(t *testing.T) {
 	v := &testVisitor{}
 	tree.Accept(v)
 	assert.Equal(t, v.String(), "(title==foo*)AND(fml==xOR(xfs==aANDf==fx))")
+}
+
+type testTypeVisitor struct {
+	sb strings.Builder
+}
+
+func (t *testTypeVisitor) VisitGroupEntered()                             {}
+func (t *testTypeVisitor) VisitGroupLeft()                                {}
+func (t *testTypeVisitor) VisitOperator(operator OperatorDefintion)       {}
+func (t *testTypeVisitor) VisitSelector(selector string)                  {}
+func (t *testTypeVisitor) VisitComparison(comparison ComparisonDefintion) {}
+func (t *testTypeVisitor) VisitArgument(argument string, recommendedValueType ValueRecommendation) {
+	t.sb.WriteString(string(recommendedValueType))
+}
+
+func (t *testTypeVisitor) String() string { return t.sb.String() }
+
+func TestRecommendedTypeString(t *testing.T) {
+	p := NewParser()
+	tree, err := p.Parse("title==foo*")
+	assert.NoError(t, err)
+	v := &testTypeVisitor{}
+	tree.Accept(v)
+	assert.Equal(t, "string", v.String())
+}
+
+func TestRecommendedTypeStrings(t *testing.T) {
+	p := NewParser()
+	tree, err := p.Parse("title==foo,blah==blub")
+	assert.NoError(t, err)
+	v := &testTypeVisitor{}
+	tree.Accept(v)
+	assert.Equal(t, "stringstring", v.String())
+}
+
+func TestRecommendedTypeTuple(t *testing.T) {
+	p := NewParser()
+	tree, err := p.Parse("title=in=[a*b]")
+	assert.NoError(t, err)
+	v := &testTypeVisitor{}
+	tree.Accept(v)
+	assert.Equal(t, "tuple", v.String())
+}
+
+func TestRecommendedTypeNumber(t *testing.T) {
+	p := NewParser()
+	tree, err := p.Parse("title=lt=-100.0")
+	assert.NoError(t, err)
+	v := &testTypeVisitor{}
+	tree.Accept(v)
+	assert.Equal(t, "number", v.String())
+}
+
+func TestRecommendedTypeDateTime(t *testing.T) {
+	p := NewParser()
+	tree, err := p.Parse("title=gt=2003-12-13T18:30:02Z")
+	assert.NoError(t, err)
+	v := &testTypeVisitor{}
+	tree.Accept(v)
+	assert.Equal(t, "datetime", v.String())
+}
+
+func TestRecommendedTypeDuration(t *testing.T) {
+	p := NewParser()
+	tree, err := p.Parse("title=gt=-P5Y")
+	assert.NoError(t, err)
+	v := &testTypeVisitor{}
+	tree.Accept(v)
+	assert.Equal(t, "duration", v.String())
 }
 
 func TestJsonMarshall(t *testing.T) {

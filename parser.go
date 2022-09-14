@@ -13,7 +13,9 @@ package fiqlparser
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // NodeType defines the type of node in the ast
@@ -76,6 +78,24 @@ const ComparisonIn ComparisonDefintion = "in"
 // ComparisonQ query comparison
 const ComparisonQ ComparisonDefintion = "query"
 
+// ValueRecommendation suggests a detected datatype for a attribute
+type ValueRecommendation string
+
+// ValueRecommendationString suggests a string attribute
+const ValueRecommendationString ValueRecommendation = "string"
+
+// ValueRecommendationDateTime suggests a date attribute
+const ValueRecommendationDateTime ValueRecommendation = "datetime"
+
+// ValueRecommendationDuration suggests a duration attribute
+const ValueRecommendationDuration ValueRecommendation = "duration"
+
+// ValueRecommendationNumber suggests a number attribute
+const ValueRecommendationNumber ValueRecommendation = "number"
+
+// ValueRecommendationTuple suggests a tuple attribute
+const ValueRecommendationTuple ValueRecommendation = "tuple"
+
 //Basically follow naming of https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00#section-3.2
 
 // NodeVisitor is used to visit the tree
@@ -96,7 +116,7 @@ type NodeVisitor interface {
 	VisitComparison(comparison ComparisonDefintion)
 
 	// VisitArgument is called when a argument is visited
-	VisitArgument(argument string)
+	VisitArgument(argument string, recommendedValueType ValueRecommendation)
 }
 
 // Node represents a AST node
@@ -258,8 +278,9 @@ func (e *binaryExpression) String() string {
 }
 
 type constantExpression struct {
-	selector bool
-	value    string
+	selector    bool
+	value       string
+	recommended ValueRecommendation
 }
 
 func (e *constantExpression) NodeType() NodeType {
@@ -278,7 +299,7 @@ func (e *constantExpression) Accept(visitor NodeVisitor) {
 	if e.selector {
 		visitor.VisitSelector(e.value)
 	} else {
-		visitor.VisitArgument(e.value)
+		visitor.VisitArgument(e.value, e.recommended)
 	}
 
 }
@@ -371,10 +392,37 @@ func (p *Parser) handleGroup(parent Node) (Node, error) {
 	return group, nil
 }
 
+var numericRegex = regexp.MustCompile(`^(\+|-|)[0-9\.]+$`)
+var durationRegex = regexp.MustCompile(`^(\+|-|)P(?:\d+(?:\.\d+)?Y)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?W)?(?:\d+(?:\.\d+)?D)?(?:T(?:\d+(?:\.\d+)?H)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?S)?)?$`)
+
+func isDateValue(stringDate string) bool {
+	_, err := time.Parse(time.RFC3339, stringDate)
+	return err == nil
+}
+
+func numberOrDateExpressionValidator(i string) (bool, ValueRecommendation, string) {
+	if numericRegex.MatchString(i) {
+		return true, ValueRecommendationNumber, ""
+	}
+	//time or duration e.g. 2003-12-13T18:30:02Z or  -P1D12
+	if isDateValue(i) {
+		return true, ValueRecommendationDateTime, ""
+	}
+	if durationRegex.MatchString(i) {
+		return true, ValueRecommendationDuration, ""
+	}
+
+	return false, ValueRecommendationString, "number or date or duration"
+}
+
+func inValidator(i string) (bool, ValueRecommendation, string) {
+	return i[0] == '[' && i[len(i)-1] == ']', ValueRecommendationTuple, "in clause [a*b*c]"
+}
+
 func (p *Parser) handleBinaryExpression(t tokenType) (Node, error) {
 	bin := &binaryExpression{nodes: [2]Node{nil, nil}}
 	bin.operator = t.String()
-	bin.Add(&constantExpression{value: p.lex.lastValue(), selector: true})
+	bin.Add(&constantExpression{value: p.lex.lastValue(), selector: true, recommended: ValueRecommendationString})
 	t, err := p.lex.ConsumeToken()
 	if err != nil {
 		return bin, err
@@ -384,13 +432,34 @@ func (p *Parser) handleBinaryExpression(t tokenType) (Node, error) {
 	} else {
 		return bin, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected a value)", p.lex.ln, p.lex.posInLine, t.String())
 	}
-
+	validator := func(i string) (bool, ValueRecommendation, string) {
+		if isDateValue(i) {
+			return true, ValueRecommendationDateTime, ""
+		}
+		if durationRegex.MatchString(i) {
+			return true, ValueRecommendationDuration, ""
+		}
+		if numericRegex.MatchString(i) {
+			return true, ValueRecommendationNumber, ""
+		}
+		return true, ValueRecommendationString, ""
+	}
+	if isNumberOrDateComparision(t) {
+		validator = numberOrDateExpressionValidator
+	}
+	if isInToken(t) {
+		validator = inValidator
+	}
 	t, err = p.lex.ConsumeToken()
 	if err != nil {
 		return bin, err
 	}
 	if t == tokenValue {
-		bin.Add(&constantExpression{value: p.lex.lastValue()})
+		ok, rec, msg := validator(p.lex.lastValue())
+		if !ok {
+			return bin, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected %s)", p.lex.ln, p.lex.posInLine, p.lex.lastValue(), msg)
+		}
+		bin.Add(&constantExpression{value: p.lex.lastValue(), recommended: rec})
 	} else {
 		return bin, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected a value)", p.lex.ln, p.lex.posInLine, t.String())
 	}
