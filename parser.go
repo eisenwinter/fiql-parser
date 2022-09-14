@@ -30,6 +30,65 @@ const WalkEntered WalkOperation = true
 // WalkLeave going
 const WalkLeave WalkOperation = false
 
+// OperatorDefintion defines the two operators fiql has
+type OperatorDefintion string
+
+// OperatorOR defines the OR operation
+const OperatorOR OperatorDefintion = "OR"
+
+// OperatorAND defines the AND operation
+const OperatorAND OperatorDefintion = "AND"
+
+// ComparisonDefintion defines the fiql + custom comparisons
+type ComparisonDefintion string
+
+// ComparisonEq equal comparison
+const ComparisonEq ComparisonDefintion = "=="
+
+// ComparisonNeq not equal comparison
+const ComparisonNeq ComparisonDefintion = "<>"
+
+// ComparisonEq greater comparison
+const ComparisonGt ComparisonDefintion = ">"
+
+// ComparisonEq less comparison
+const ComparisonLt ComparisonDefintion = "<"
+
+// ComparisonEq greater or equal comparison
+const ComparisonGte ComparisonDefintion = ">="
+
+// ComparisonEq less or equal comparison
+const ComparisonLte ComparisonDefintion = "<="
+
+// ComparisonEq in comparison
+const ComparisonIn ComparisonDefintion = "in"
+
+// ComparisonEq query comparison
+const ComparisonQ ComparisonDefintion = "query"
+
+//Basically follow naming of https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00#section-3.2
+
+// NodeVisitor is used to visit the tree
+type NodeVisitor interface {
+	// VisitGroupEntered is called when a group is entered
+	VisitGroupEntered()
+
+	// VisitGroupEntered is called when a group is left
+	VisitGroupLeft()
+
+	// VisitOperator is called when a operator is visited
+	VisitOperator(operator OperatorDefintion)
+
+	// VisitSelector is called when a selector is visited
+	VisitSelector(selector string)
+
+	// VisitComparison is called when a comparison is visited
+	VisitComparison(comparison ComparisonDefintion)
+
+	// VisitArgument is called when a argument is visited
+	VisitArgument(argument string)
+}
+
 // Node represents a AST node
 type Node interface {
 	// NodeType - node type in the AST - the root node will always be expression
@@ -40,6 +99,11 @@ type Node interface {
 	String() string
 	// Walk allows to iterate over the node and its child nodes
 	Walk(fx func(Node, WalkOperation))
+	// Returns the children of this node
+	Children() []Node
+
+	// Accepts a Visitor
+	Accept(visitor NodeVisitor)
 }
 
 // Expression is the root node
@@ -63,6 +127,13 @@ func (e *Expression) Walk(fx func(Node, WalkOperation)) {
 		v.Walk(fx)
 	}
 	fx(e, WalkLeave)
+}
+
+// Accept accepts a vistor to visit the tree
+func (e *Expression) Accept(visitor NodeVisitor) {
+	for _, v := range e.nodes {
+		v.Accept(visitor)
+	}
 }
 
 // MarshalJSON overloading for json marshalling
@@ -93,13 +164,15 @@ func (e *Expression) String() string {
 			} else {
 				b.WriteString(")")
 			}
-			break
 		default:
 			b.WriteString(n.String())
-			b.WriteString(" ")
 		}
 	})
-	return strings.TrimSpace(b.String())
+	return b.String()
+}
+
+func (e *Expression) Children() []Node {
+	return e.nodes
 }
 
 type binaryExpression struct {
@@ -133,6 +206,26 @@ func (e *binaryExpression) Walk(fx func(Node, WalkOperation)) {
 
 }
 
+// Accept accepts a vistor to visit the tree
+func (e *binaryExpression) Accept(visitor NodeVisitor) {
+	if e.nodes[0] != nil {
+		e.nodes[0].Accept(visitor)
+	}
+	//conjs
+	if e.operator == "AND" || e.operator == "OR" {
+		visitor.VisitOperator(OperatorDefintion(e.operator))
+	} else {
+		visitor.VisitComparison(ComparisonDefintion(e.operator))
+	}
+	if e.nodes[1] != nil {
+		e.nodes[1].Accept(visitor)
+	}
+}
+
+func (e *binaryExpression) Children() []Node {
+	return []Node{e.nodes[0], e.nodes[1]}
+}
+
 func (e *binaryExpression) MarshalJSON() ([]byte, error) {
 	j, err := json.Marshal(struct {
 		Type     string
@@ -150,11 +243,12 @@ func (e *binaryExpression) MarshalJSON() ([]byte, error) {
 }
 
 func (e *binaryExpression) String() string {
-	return e.operator
+	return " " + e.operator + " "
 }
 
 type constantExpression struct {
-	value string
+	selector bool
+	value    string
 }
 
 func (e *constantExpression) NodeType() NodeType {
@@ -167,6 +261,15 @@ func (e *constantExpression) Add(node Node) {
 
 func (e *constantExpression) Walk(fx func(Node, WalkOperation)) {
 	fx(e, WalkEntered)
+}
+
+func (e *constantExpression) Accept(visitor NodeVisitor) {
+	if e.selector {
+		visitor.VisitSelector(e.value)
+	} else {
+		visitor.VisitArgument(e.value)
+	}
+
 }
 
 func (e *constantExpression) MarshalJSON() ([]byte, error) {
@@ -187,9 +290,12 @@ func (e *constantExpression) String() string {
 	return e.value
 }
 
+func (e *constantExpression) Children() []Node {
+	return []Node{}
+}
+
 type groupExpression struct {
-	parent Node
-	nodes  []Node
+	nodes []Node
 }
 
 func (e groupExpression) NodeType() NodeType {
@@ -208,6 +314,15 @@ func (e *groupExpression) Walk(fx func(Node, WalkOperation)) {
 	fx(e, WalkLeave)
 }
 
+// Accept accepts a vistor to visit the tree
+func (e *groupExpression) Accept(visitor NodeVisitor) {
+	visitor.VisitGroupEntered()
+	for _, v := range e.nodes {
+		v.Accept(visitor)
+	}
+	visitor.VisitGroupLeft()
+}
+
 func (e *groupExpression) MarshalJSON() ([]byte, error) {
 	j, err := json.Marshal(struct {
 		Type  string
@@ -223,28 +338,32 @@ func (e *groupExpression) MarshalJSON() ([]byte, error) {
 }
 
 func (e *groupExpression) String() string {
-	return ""
+	return "group"
 }
 
-type parser struct {
+func (e *groupExpression) Children() []Node {
+	return e.nodes
+}
+
+// Parser is the fiql parser
+type Parser struct {
 	lex *lexer
 }
 
-func (p *parser) handleGroup(parent Node) (Node, error) {
+func (p *Parser) handleGroup(parent Node) (Node, error) {
 	group := &groupExpression{nodes: make([]Node, 0)}
 	n, err := p.build(group)
 	if err != nil {
 		return group, err
 	}
 	group.Add(n)
-	// parent.Add(group)
-	return group, nil //p.build(parent)
+	return group, nil
 }
 
-func (p *parser) handleBinaryExpression(t tokenType) (Node, error) {
+func (p *Parser) handleBinaryExpression(t tokenType) (Node, error) {
 	bin := &binaryExpression{nodes: [2]Node{nil, nil}}
 	bin.operator = t.String()
-	bin.Add(&constantExpression{value: p.lex.lastValue()})
+	bin.Add(&constantExpression{value: p.lex.lastValue(), selector: true})
 	t, err := p.lex.ConsumeToken()
 	if err != nil {
 		return bin, err
@@ -287,7 +406,7 @@ func (p *parser) handleBinaryExpression(t tokenType) (Node, error) {
 	return bin, nil
 }
 
-func (p *parser) build(parent Node) (Node, error) {
+func (p *Parser) build(parent Node) (Node, error) {
 	t, err := p.lex.ConsumeToken()
 	if err != nil {
 		return parent, err
@@ -296,7 +415,7 @@ func (p *parser) build(parent Node) (Node, error) {
 		return parent, nil
 	}
 	if t == tokenBraceClose {
-		return parent, fmt.Errorf("ln:%d:%d syntax error (invalid closing brace))", p.lex.ln, p.lex.posInLine)
+		return parent, fmt.Errorf("ln:%d:%d syntax error (invalid closing brace `)` )", p.lex.ln, p.lex.posInLine)
 	}
 
 	if t == tokenBraceOpen {
@@ -309,7 +428,7 @@ func (p *parser) build(parent Node) (Node, error) {
 			return parent, err
 		}
 		if t != tokenBraceClose {
-			return parent, fmt.Errorf("ln:%d:%d syntax error (unclosed brace))", p.lex.ln, p.lex.posInLine)
+			return parent, fmt.Errorf("ln:%d:%d syntax error (unclosed brace `)` )", p.lex.ln, p.lex.posInLine)
 		}
 
 		next, _, err := p.lex.PeekNextToken()
@@ -355,7 +474,7 @@ func (p *parser) build(parent Node) (Node, error) {
 
 }
 
-func (p *parser) GetAst(input string) (Expression, error) {
+func (p *Parser) Parse(input string) (Expression, error) {
 	p.lex = &lexer{input, 0, 1, 0, ""}
 	exp := Expression{}
 	_, err := p.build(&exp)
@@ -363,12 +482,12 @@ func (p *parser) GetAst(input string) (Expression, error) {
 }
 
 // NewParser returns a new figl parser
-func NewParser() *parser {
-	return &parser{}
+func NewParser() *Parser {
+	return &Parser{}
 }
 
 // Parse instant parses the supplied figl
 func Parse(input string) (Expression, error) {
-	p := &parser{}
-	return p.GetAst(input)
+	p := &Parser{}
+	return p.Parse(input)
 }

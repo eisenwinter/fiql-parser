@@ -171,11 +171,13 @@ func (p *lexer) readValue() (tokenType, string, error) {
 		}
 		v, ok := p.peek()
 		if ok {
+			if unicode.IsSpace(v) {
+				break
+			}
 			if !escaped && (v == ';' || v == ',' || v == '!' || v == '=' || v == ')') {
 				break
 			}
 		}
-
 		if v == '\\' && !escaped {
 			escaped = true
 			p.consume()

@@ -14,6 +14,11 @@ tasks:
     desc: "Runs unit tests"
     cmds:
       - go test -v ./...
+  test:coverage:
+    desc: "Shows test coverage"
+    cmds:
+      - go test -coverprofile=coverage.out
+      - go tool cover -html=coverage.out 
   lint:goreportcard:
     desc: "Runs goreportcard"
     cmds:
