@@ -177,13 +177,21 @@ type Node interface {
 	Children() []Node
 	// Accepts a Visitor
 	Accept(visitor NodeVisitor)
-
+	// Add adds a child node to this node
 	Add(Node)
+
+	// isRoot indicates the root node
+	isRoot() bool
 }
 
 // Expression is the root node
 type Expression struct {
 	node Node
+	root bool
+}
+
+func (e *Expression) isRoot() bool {
+	return e.root
 }
 
 // NodeType NodeTypeExpression
@@ -277,7 +285,18 @@ func (e *binaryExpression) Accept(visitor NodeVisitor) {
 }
 
 func (e *binaryExpression) Children() []Node {
-	return []Node{e.nodes[0], e.nodes[1]}
+	nodes := make([]Node, 0)
+	if e.nodes[0] != nil {
+		nodes = append(nodes, e.nodes[0])
+	}
+	if e.nodes[1] != nil {
+		nodes = append(nodes, e.nodes[1])
+	}
+	return nodes
+}
+
+func (e *binaryExpression) isRoot() bool {
+	return false
 }
 
 func (e *binaryExpression) MarshalJSON() ([]byte, error) {
@@ -315,6 +334,10 @@ type constantExpression struct {
 	selector    bool
 	value       string
 	recommended ValueRecommendation
+}
+
+func (e *constantExpression) isRoot() bool {
+	return false
 }
 
 func (e *constantExpression) NodeType() NodeType {
@@ -364,9 +387,9 @@ type Parser struct {
 	lex *lexer
 }
 
-func (p *Parser) handleSubExpression(parent Node, root Node) (Node, error) {
+func (p *Parser) handleSubExpression(parent Node) (Node, error) {
 	expr := &Expression{node: nil}
-	n, err := p.build(expr, root)
+	n, err := p.build(expr)
 	if err != nil {
 		return expr, err
 	}
@@ -401,7 +424,20 @@ func inValidator(i string) (bool, ValueRecommendation, string) {
 	return i[0] == '[' && i[len(i)-1] == ']', ValueRecommendationTuple, "in clause [a*b*c]"
 }
 
-func (p *Parser) handleBinaryExpression(t tokenType, root Node) (Node, error) {
+func defaultValidator(i string) (bool, ValueRecommendation, string) {
+	if isDateValue(i) {
+		return true, ValueRecommendationDateTime, ""
+	}
+	if durationRegex.MatchString(i) {
+		return true, ValueRecommendationDuration, ""
+	}
+	if numericRegex.MatchString(i) {
+		return true, ValueRecommendationNumber, ""
+	}
+	return true, ValueRecommendationString, ""
+}
+
+func (p *Parser) handleBinaryExpression(t tokenType, parent Node) (Node, error) {
 	bin := &binaryExpression{nodes: [2]Node{nil, nil}}
 	bin.operator = t.String()
 	bin.Add(&constantExpression{value: p.lex.lastValue(), selector: true, recommended: ValueRecommendationString})
@@ -414,18 +450,7 @@ func (p *Parser) handleBinaryExpression(t tokenType, root Node) (Node, error) {
 	} else {
 		return bin, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected a value)", p.lex.ln, p.lex.posInLine, t.String())
 	}
-	validator := func(i string) (bool, ValueRecommendation, string) {
-		if isDateValue(i) {
-			return true, ValueRecommendationDateTime, ""
-		}
-		if durationRegex.MatchString(i) {
-			return true, ValueRecommendationDuration, ""
-		}
-		if numericRegex.MatchString(i) {
-			return true, ValueRecommendationNumber, ""
-		}
-		return true, ValueRecommendationString, ""
-	}
+	validator := defaultValidator
 	if isNumberOrDateComparision(t) {
 		validator = numberOrDateExpressionValidator
 	}
@@ -458,30 +483,72 @@ func (p *Parser) handleBinaryExpression(t tokenType, root Node) (Node, error) {
 		conj := &binaryExpression{nodes: [2]Node{nil, nil}}
 		conj.operator = t.String()
 		conj.Add(bin)
-		rhs, err := p.build(conj, root)
+		rhs, err := p.build(conj)
 		if err != nil {
 			return conj, err
 		}
 		conj.Add(rhs)
 		return conj, nil
 	}
+	if isCompareToken(next) {
+		return bin, fmt.Errorf("ln:%d:%d dangling comparator", p.lex.ln, p.lex.posInLine)
+	}
+	if next == tokenBraceClose && parent.isRoot() {
+		return bin, fmt.Errorf("ln:%d:%d syntax error (invalid closing brace `)` )", p.lex.ln, p.lex.posInLine)
+	}
 	return bin, nil
 }
 
-func (p *Parser) build(parent Node, root Node) (Node, error) {
+func (p *Parser) checkDanglingChild(n Node) bool {
+	if n.NodeType() == NodeTypeBinary {
+		if len(n.Children()) != 2 {
+			return true
+		}
+	}
+	return false
+}
+
+// checkImpossibleTokensOnEnter checks for tokens that should not appear on enter `build`
+func (p *Parser) checkImpossibleTokensOnEnter(t tokenType) error {
+	if t == tokenBraceClose {
+		return fmt.Errorf("ln:%d:%d syntax error (invalid closing brace `)` )", p.lex.ln, p.lex.posInLine)
+	}
+
+	if isLogicToken(t) {
+		return fmt.Errorf("ln:%d:%d dangling operator", p.lex.ln, p.lex.posInLine)
+	}
+
+	if isCompareToken(t) {
+		return fmt.Errorf("ln:%d:%d dangling comparator", p.lex.ln, p.lex.posInLine)
+	}
+	return nil
+}
+
+// checkForEOF checks for correct end of file
+func (p *Parser) checkForEOF(t tokenType, node Node) (bool, error) {
+	if t == tokenEOF {
+		if p.checkDanglingChild(node) {
+			return true, fmt.Errorf("ln:%d:%d dangling operator", p.lex.ln, p.lex.posInLine)
+
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (p *Parser) build(parent Node) (Node, error) {
 	t, err := p.lex.ConsumeToken()
 	if err != nil {
 		return parent, err
 	}
-	if t == tokenEOF {
-		return parent, nil
+	if ok, err := p.checkForEOF(t, parent); ok {
+		return parent, err
 	}
-	if t == tokenBraceClose {
-		return parent, fmt.Errorf("ln:%d:%d syntax error (invalid closing brace `)` )", p.lex.ln, p.lex.posInLine)
+	if err = p.checkImpossibleTokensOnEnter(t); err != nil {
+		return parent, err
 	}
-
 	if t == tokenBraceOpen {
-		sub, err := p.handleSubExpression(parent, root)
+		sub, err := p.handleSubExpression(parent)
 		if err != nil {
 			return parent, err
 		}
@@ -506,7 +573,7 @@ func (p *Parser) build(parent Node, root Node) (Node, error) {
 			conj.operator = t.String()
 			conj.Add(sub)
 
-			rhs, err := p.build(conj, root)
+			rhs, err := p.build(conj)
 			if err != nil {
 				return conj, err
 			}
@@ -525,8 +592,8 @@ func (p *Parser) build(parent Node, root Node) (Node, error) {
 
 	if t == tokenValue {
 		//TODO: consider unary (its in the draft but i dont see how its valuable for my purpose)
-		binary, err := p.handleBinaryExpression(t, root)
-		if parent == root {
+		binary, err := p.handleBinaryExpression(t, parent)
+		if parent.isRoot() {
 			parent.Add(binary)
 			return parent, err
 		}
@@ -539,8 +606,8 @@ func (p *Parser) build(parent Node, root Node) (Node, error) {
 // Parse parses the supplied fiql and returns either a Expression or an error
 func (p *Parser) Parse(input string) (Expression, error) {
 	p.lex = &lexer{[]rune(input), 0, 1, 0, ""}
-	exp := Expression{}
-	_, err := p.build(&exp, &exp)
+	exp := Expression{root: true}
+	_, err := p.build(&exp)
 	return exp, err
 }
 

@@ -45,6 +45,7 @@ func TestParse(t *testing.T) {
 		stringOuput string
 		errorOutput error
 	}{
+		{fiql: "(column==value)", stringOuput: "((column == value))", errorOutput: nil},
 		{fiql: "column=q=value", stringOuput: "(column query value)", errorOutput: nil},
 		{fiql: "column==value", stringOuput: "(column == value)", errorOutput: nil},
 		{fiql: "column!=value", stringOuput: "(column <> value)", errorOutput: nil},
@@ -90,6 +91,9 @@ func TestParse(t *testing.T) {
 		if v.errorOutput != nil {
 			assert.EqualError(t, err, v.errorOutput.Error())
 		} else {
+			if err != nil {
+				fmt.Printf(v.fiql)
+			}
 			assert.Nil(t, err)
 			assert.NotNil(t, res)
 			assert.Equal(t, v.stringOuput, res.String())
@@ -98,6 +102,47 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestDangling(t *testing.T) {
+	_, err := Parse("a==b;")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:5 dangling operator"), err)
+
+	_, err = Parse("a==b,")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:5 dangling operator"), err)
+
+	_, err = Parse(",a==b")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:1 dangling operator"), err)
+
+	_, err = Parse(";a==b")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:1 dangling operator"), err)
+
+	_, err = Parse("==a==b")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:2 dangling comparator"), err)
+
+	_, err = Parse("a==b!=")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:4 dangling comparator"), err)
+
+	_, err = Parse("(a==b")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:5 syntax error (unclosed brace `)` )"), err)
+
+	_, err = Parse("a==b)")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:4 syntax error (invalid closing brace `)` )"), err)
+
+	_, err = Parse("()")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:2 syntax error (invalid closing brace `)` )"), err)
+
+	_, err = Parse("a==")
+	assert.Error(t, err)
+	assert.Equal(t, errors.New("ln:1:3 syntax error (got `eof` but expected a value)"), err)
+}
 func TestVisitor(t *testing.T) {
 	p := NewParser()
 	tree, err := p.Parse("(title==foo*);(fml==x,(xfs==a;f==fx))")
