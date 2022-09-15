@@ -11,11 +11,11 @@ type SimpleTestVisitor struct {
 	sb strings.Builder
 }
 
-// VisitGroupEntered is called when a group is entered
-func (t *SimpleTestVisitor) VisitGroupEntered() { t.sb.WriteString("(") }
+// VisitExpressionEntered is called when a expression is entered
+func (t *SimpleTestVisitor) VisitExpressionEntered() { t.sb.WriteString("(") }
 
-// VisitGroupLeft is called when a group is left
-func (t *SimpleTestVisitor) VisitGroupLeft() { t.sb.WriteString(")") }
+// VisitExpressionLeft is called when a expression is left
+func (t *SimpleTestVisitor) VisitExpressionLeft() { t.sb.WriteString(")") }
 
 // VisitOperator is called when a operator is visited
 func (t *SimpleTestVisitor) VisitOperator(operator OperatorDefintion) {
@@ -33,7 +33,7 @@ func (t *SimpleTestVisitor) VisitComparison(comparison ComparisonDefintion) {
 }
 
 // VisitArgument is called when an argument is visited
-func (t *SimpleTestVisitor) VisitArgument(argument string, recommendedValueType ValueRecommendation) {
+func (t *SimpleTestVisitor) VisitArgument(argument string, valueCtx ValueContext) {
 	t.sb.WriteString(argument)
 }
 
@@ -51,5 +51,5 @@ func Example() {
 	tree.Accept(v)
 	fmt.Print(v.String())
 	// Output:
-	// (title==foo*) AND (fml==x OR (xfs==a AND f==fx))
+	// ((title==foo*) AND (fml==x OR (xfs==a AND f==fx)))
 }

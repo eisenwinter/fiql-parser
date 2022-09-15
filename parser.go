@@ -6,14 +6,15 @@
 // The main difference is that there is no support for unary expressions
 // and there are two custom comparison operators which are not part of the spec
 // =in= and =q=.
-// The parser produces a walkable AST which can be either iteratet with the walk function
-// or by using a visitor.
+// The parser produces a walkable AST which can be walked by using a visitor.
 package fiqlparser
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,25 +31,15 @@ const NodeTypeBinary NodeType = "Binary"
 // NodeTypeConstant is a constant value expression
 const NodeTypeConstant NodeType = "Const"
 
-// NodeTypeGroup is a expression used to group items
-const NodeTypeGroup NodeType = "Group"
-
-// WalkOperation defines its coming or going, mainly used for braces
-type WalkOperation bool
-
-// WalkEntered coming
-const WalkEntered WalkOperation = true
-
-// WalkLeave going
-const WalkLeave WalkOperation = false
-
 // OperatorDefintion defines the two operators fiql has
 type OperatorDefintion string
 
 // OperatorOR defines the OR operation
+// Associativity: Left to right
 const OperatorOR OperatorDefintion = "OR"
 
 // OperatorAND defines the AND operation
+// Associativity: Left to right
 const OperatorAND OperatorDefintion = "AND"
 
 // ComparisonDefintion defines the fiql + custom comparisons
@@ -96,15 +87,72 @@ const ValueRecommendationNumber ValueRecommendation = "number"
 // ValueRecommendationTuple suggests a tuple attribute
 const ValueRecommendationTuple ValueRecommendation = "tuple"
 
+// ValueContext supplies the recommended type and
+// conversion helpers
+type ValueContext struct {
+	r   ValueRecommendation
+	val string
+}
+
+// ValueRecommendation returns the value recommendation
+func (c ValueContext) ValueRecommendation() ValueRecommendation {
+	return c.r
+}
+
+// AsDuration is a helper method for converting duration values
+func (c ValueContext) AsDuration() (ISO8601Duration, error) {
+	return durationConverter.tryParseISO8601Duration(c.val)
+}
+
+// AsTime is a helper method for converting duration values
+func (c ValueContext) AsTime() (time.Time, error) {
+	return time.Parse(time.RFC3339, c.val)
+}
+
+// AsInt returns the underlying value as int
+func (c ValueContext) AsInt() (int, error) {
+	return strconv.Atoi(c.val)
+}
+
+// AsFloat64 returns the underlying value as float64
+func (c ValueContext) AsFloat64() (float64, error) {
+	return strconv.ParseFloat(c.val, 64)
+}
+
+// AsTuple returns the underlying as tuple (slice of strings)
+func (c ValueContext) AsTuple() ([]string, error) {
+	if len(c.val) < 2 || !(c.val[0] == '[' && c.val[len(c.val)-1] == ']') {
+		return []string{}, fmt.Errorf("invalid tuple %s", c.val)
+	}
+	var b bytes.Buffer
+	tupple := make([]string, 0)
+	escaped := false
+	for _, c := range c.val[1 : len(c.val)-1] {
+		if !escaped && c == '*' {
+			tupple = append(tupple, b.String())
+			b.Reset()
+		}
+		if !escaped && c == '\\' {
+			escaped = true
+		}
+		if escaped && c == '*' {
+			escaped = false
+		}
+
+		b.WriteRune(c)
+	}
+	return tupple, nil
+}
+
 //Basically follow naming of https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00#section-3.2
 
 // NodeVisitor is used to visit the tree
 type NodeVisitor interface {
-	// VisitGroupEntered is called when a group is entered
-	VisitGroupEntered()
+	// VisitExpressionEntered is called when a expression is entered
+	VisitExpressionEntered()
 
-	// VisitGroupEntered is called when a group is left
-	VisitGroupLeft()
+	// VisitExpressionLeft is called when a expression is left
+	VisitExpressionLeft()
 
 	// VisitOperator is called when a operator is visited
 	VisitOperator(operator OperatorDefintion)
@@ -116,29 +164,26 @@ type NodeVisitor interface {
 	VisitComparison(comparison ComparisonDefintion)
 
 	// VisitArgument is called when a argument is visited
-	VisitArgument(argument string, recommendedValueType ValueRecommendation)
+	VisitArgument(argument string, valueCtx ValueContext)
 }
 
 // Node represents a AST node
 type Node interface {
 	// NodeType - node type in the AST - the root node will always be expression
 	NodeType() NodeType
-	// Add adds a child node to the node
-	Add(node Node)
 	// String prints the node
 	String() string
-	// Walk allows to iterate over the node and its child nodes
-	Walk(fx func(Node, WalkOperation))
 	// Returns the children of this node
 	Children() []Node
-
 	// Accepts a Visitor
 	Accept(visitor NodeVisitor)
+
+	Add(Node)
 }
 
 // Expression is the root node
 type Expression struct {
-	nodes []Node
+	node Node
 }
 
 // NodeType NodeTypeExpression
@@ -146,24 +191,21 @@ func (e *Expression) NodeType() NodeType {
 	return NodeTypeExpression
 }
 
-// Add adds a childnode
-func (e *Expression) Add(node Node) {
-	e.nodes = append(e.nodes, node)
-}
-
-// Walk walks the expression
-func (e *Expression) Walk(fx func(Node, WalkOperation)) {
-	for _, v := range e.nodes {
-		v.Walk(fx)
-	}
-	fx(e, WalkLeave)
-}
-
 // Accept accepts a vistor to visit the tree
 func (e *Expression) Accept(visitor NodeVisitor) {
-	for _, v := range e.nodes {
-		v.Accept(visitor)
+	visitor.VisitExpressionEntered()
+	if e.node != nil {
+		e.node.Accept(visitor)
 	}
+	visitor.VisitExpressionLeft()
+}
+
+// Add adds a child to the node, it will panic if more than one child exists on a expression node
+func (e *Expression) Add(node Node) {
+	if e.node != nil {
+		panic("node may not have more than one child")
+	}
+	e.node = node
 }
 
 // MarshalJSON overloading for json marshalling
@@ -174,7 +216,7 @@ func (e *Expression) MarshalJSON() ([]byte, error) {
 		Nodes    []Node
 	}{
 		Type:  string(e.NodeType()),
-		Nodes: e.nodes,
+		Nodes: []Node{e.node},
 	})
 	if err != nil {
 		return nil, err
@@ -184,26 +226,17 @@ func (e *Expression) MarshalJSON() ([]byte, error) {
 
 func (e *Expression) String() string {
 	var b strings.Builder
-	e.Walk(func(n Node, w WalkOperation) {
-		switch n.NodeType() {
-		case NodeTypeExpression:
-			break
-		case NodeTypeGroup:
-			if w == WalkEntered {
-				b.WriteString("(")
-			} else {
-				b.WriteString(")")
-			}
-		default:
-			b.WriteString(n.String())
-		}
-	})
+	b.WriteRune('(')
+	for _, v := range e.Children() {
+		b.WriteString(v.String())
+	}
+	b.WriteRune(')')
 	return b.String()
 }
 
 // Children returns the children of this expression
 func (e *Expression) Children() []Node {
-	return e.nodes
+	return []Node{e.node}
 }
 
 type binaryExpression struct {
@@ -225,16 +258,6 @@ func (e *binaryExpression) Add(node Node) {
 		return
 	}
 	panic("binary node cant hold more than two values")
-}
-func (e *binaryExpression) Walk(fx func(Node, WalkOperation)) {
-	if e.nodes[0] != nil {
-		e.nodes[0].Walk(fx)
-	}
-	fx(e, WalkEntered)
-	if e.nodes[1] != nil {
-		e.nodes[1].Walk(fx)
-	}
-
 }
 
 // Accept accepts a vistor to visit the tree
@@ -274,7 +297,18 @@ func (e *binaryExpression) MarshalJSON() ([]byte, error) {
 }
 
 func (e *binaryExpression) String() string {
-	return " " + e.operator + " "
+	var b strings.Builder
+	if e.nodes[0] != nil {
+		b.WriteString(e.nodes[0].String())
+	}
+	b.WriteRune(' ')
+	b.WriteString(e.operator)
+	b.WriteRune(' ')
+	if e.nodes[1] != nil {
+		b.WriteString(e.nodes[1].String())
+	}
+
+	return b.String()
 }
 
 type constantExpression struct {
@@ -288,18 +322,17 @@ func (e *constantExpression) NodeType() NodeType {
 }
 
 func (e *constantExpression) Add(node Node) {
-	panic("constant should have a child")
-}
-
-func (e *constantExpression) Walk(fx func(Node, WalkOperation)) {
-	fx(e, WalkEntered)
+	panic("constant should not have a child")
 }
 
 func (e *constantExpression) Accept(visitor NodeVisitor) {
 	if e.selector {
 		visitor.VisitSelector(e.value)
 	} else {
-		visitor.VisitArgument(e.value, e.recommended)
+		visitor.VisitArgument(e.value, ValueContext{
+			r:   e.recommended,
+			val: e.value,
+		})
 	}
 
 }
@@ -326,70 +359,19 @@ func (e *constantExpression) Children() []Node {
 	return []Node{}
 }
 
-type groupExpression struct {
-	nodes []Node
-}
-
-func (e groupExpression) NodeType() NodeType {
-	return NodeTypeGroup
-}
-
-func (e *groupExpression) Add(node Node) {
-	e.nodes = append(e.nodes, node)
-}
-
-func (e *groupExpression) Walk(fx func(Node, WalkOperation)) {
-	fx(e, WalkEntered)
-	for _, v := range e.nodes {
-		v.Walk(fx)
-	}
-	fx(e, WalkLeave)
-}
-
-// Accept accepts a vistor to visit the tree
-func (e *groupExpression) Accept(visitor NodeVisitor) {
-	visitor.VisitGroupEntered()
-	for _, v := range e.nodes {
-		v.Accept(visitor)
-	}
-	visitor.VisitGroupLeft()
-}
-
-func (e *groupExpression) MarshalJSON() ([]byte, error) {
-	j, err := json.Marshal(struct {
-		Type  string
-		Nodes []Node
-	}{
-		Type:  string(e.NodeType()),
-		Nodes: e.nodes,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return j, nil
-}
-
-func (e *groupExpression) String() string {
-	return "group"
-}
-
-func (e *groupExpression) Children() []Node {
-	return e.nodes
-}
-
 // Parser is the fiql parser
 type Parser struct {
 	lex *lexer
 }
 
-func (p *Parser) handleGroup(parent Node) (Node, error) {
-	group := &groupExpression{nodes: make([]Node, 0)}
-	n, err := p.build(group)
+func (p *Parser) handleSubExpression(parent Node, root Node) (Node, error) {
+	expr := &Expression{node: nil}
+	n, err := p.build(expr, root)
 	if err != nil {
-		return group, err
+		return expr, err
 	}
-	group.Add(n)
-	return group, nil
+	expr.node = n
+	return expr, nil
 }
 
 var numericRegex = regexp.MustCompile(`^(\+|-|)[0-9\.]+$`)
@@ -419,7 +401,7 @@ func inValidator(i string) (bool, ValueRecommendation, string) {
 	return i[0] == '[' && i[len(i)-1] == ']', ValueRecommendationTuple, "in clause [a*b*c]"
 }
 
-func (p *Parser) handleBinaryExpression(t tokenType) (Node, error) {
+func (p *Parser) handleBinaryExpression(t tokenType, root Node) (Node, error) {
 	bin := &binaryExpression{nodes: [2]Node{nil, nil}}
 	bin.operator = t.String()
 	bin.Add(&constantExpression{value: p.lex.lastValue(), selector: true, recommended: ValueRecommendationString})
@@ -476,7 +458,7 @@ func (p *Parser) handleBinaryExpression(t tokenType) (Node, error) {
 		conj := &binaryExpression{nodes: [2]Node{nil, nil}}
 		conj.operator = t.String()
 		conj.Add(bin)
-		rhs, err := p.build(conj)
+		rhs, err := p.build(conj, root)
 		if err != nil {
 			return conj, err
 		}
@@ -486,7 +468,7 @@ func (p *Parser) handleBinaryExpression(t tokenType) (Node, error) {
 	return bin, nil
 }
 
-func (p *Parser) build(parent Node) (Node, error) {
+func (p *Parser) build(parent Node, root Node) (Node, error) {
 	t, err := p.lex.ConsumeToken()
 	if err != nil {
 		return parent, err
@@ -499,7 +481,7 @@ func (p *Parser) build(parent Node) (Node, error) {
 	}
 
 	if t == tokenBraceOpen {
-		group, err := p.handleGroup(parent)
+		sub, err := p.handleSubExpression(parent, root)
 		if err != nil {
 			return parent, err
 		}
@@ -522,9 +504,9 @@ func (p *Parser) build(parent Node) (Node, error) {
 			}
 			conj := &binaryExpression{nodes: [2]Node{nil, nil}}
 			conj.operator = t.String()
-			conj.Add(group)
+			conj.Add(sub)
 
-			rhs, err := p.build(conj)
+			rhs, err := p.build(conj, root)
 			if err != nil {
 				return conj, err
 			}
@@ -534,17 +516,17 @@ func (p *Parser) build(parent Node) (Node, error) {
 			return parent, nil
 		}
 		if parent.NodeType() == NodeTypeExpression {
-			parent.Add(group)
+			parent.Add(sub)
 			return parent, nil
 		}
-		return group, nil
+		return sub, nil
 
 	}
 
 	if t == tokenValue {
 		//TODO: consider unary (its in the draft but i dont see how its valuable for my purpose)
-		binary, err := p.handleBinaryExpression(t)
-		if parent.NodeType() == NodeTypeExpression {
+		binary, err := p.handleBinaryExpression(t, root)
+		if parent == root {
 			parent.Add(binary)
 			return parent, err
 		}
@@ -556,9 +538,9 @@ func (p *Parser) build(parent Node) (Node, error) {
 
 // Parse parses the supplied fiql and returns either a Expression or an error
 func (p *Parser) Parse(input string) (Expression, error) {
-	p.lex = &lexer{input, 0, 1, 0, ""}
+	p.lex = &lexer{[]rune(input), 0, 1, 0, ""}
 	exp := Expression{}
-	_, err := p.build(&exp)
+	_, err := p.build(&exp, &exp)
 	return exp, err
 }
 

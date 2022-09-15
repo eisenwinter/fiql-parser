@@ -98,7 +98,7 @@ var ErrUnexpectedInput = errors.New("unexpected input")
 var ErrUnexpectedEOF = errors.New("unexpected end of file")
 
 type lexer struct {
-	input      string
+	input      []rune
 	pos        int
 	ln         int
 	posInLine  int
@@ -155,14 +155,14 @@ func (p *lexer) readComparator() (tokenType, error) {
 
 func (p *lexer) peek() (rune, bool) {
 	if p.pos < len(p.input) {
-		return rune(p.input[p.pos]), true
+		return p.input[p.pos], true
 	}
 	return 0, false
 }
 
 func (p *lexer) consume() rune {
 	// fmt.Printf("Consumed: %c \r\n", p.input[p.pos])
-	r := rune(p.input[p.pos])
+	r := p.input[p.pos]
 	if r == '\n' {
 		p.ln = p.ln + 1
 		p.posInLine = 0
