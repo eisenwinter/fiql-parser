@@ -99,6 +99,34 @@ func (c ValueContext) ValueRecommendation() ValueRecommendation {
 	return c.r
 }
 
+// StartsWithWildcard indicates wheter or not the given argument starts with a wildcard
+func (c ValueContext) StartsWithWildcard() bool {
+	if len(c.val) > 1 && strings.HasPrefix(c.val, "*") {
+		return true
+	}
+	return false
+}
+
+// EndsWithWildcard indicates wheter or not the given argument ends with a wildcard
+func (c ValueContext) EndsWithWildcard() bool {
+	if len(c.val) > 1 && strings.HasSuffix(c.val, "*") {
+		return true
+	}
+	return false
+}
+
+// AsString returns the argument as string, with wildcards removed
+func (c ValueContext) AsString() string {
+	val := c.val
+	if c.StartsWithWildcard() {
+		val = strings.TrimPrefix(val, "*")
+	}
+	if c.EndsWithWildcard() {
+		val = strings.TrimSuffix(val, "*")
+	}
+	return val
+}
+
 // AsDuration is a helper method for converting duration values
 func (c ValueContext) AsDuration() (ISO8601Duration, error) {
 	return durationConverter.tryParseISO8601Duration(c.val)
