@@ -338,3 +338,29 @@ func TestChildren(t *testing.T) {
 	assert.NotNil(t, tree.Children()[0].Children()[1].Children()[0])
 	assert.NotNil(t, tree.Children()[0].Children()[1].Children()[1])
 }
+
+func TestParseUnary(t *testing.T) {
+	var values = []struct {
+		fiql        string
+		stringOuput string
+		errorOutput error
+	}{
+		{fiql: "column", stringOuput: "(column)", errorOutput: nil},
+		{fiql: "columnA,columnB==c", stringOuput: "(columnA OR columnB == c)", errorOutput: nil},
+		{fiql: "columnA,(columnB==c;columnC)", stringOuput: "(columnA OR (columnB == c AND columnC))", errorOutput: nil},
+	}
+	for _, v := range values {
+		res, err := Parse(v.fiql)
+		if v.errorOutput != nil {
+			assert.EqualError(t, err, v.errorOutput.Error())
+		} else {
+			if err != nil {
+				fmt.Printf(v.fiql)
+			}
+			assert.Nil(t, err)
+			assert.NotNil(t, res)
+			assert.Equal(t, v.stringOuput, res.String())
+		}
+
+	}
+}

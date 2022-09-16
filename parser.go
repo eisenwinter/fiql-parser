@@ -499,6 +499,36 @@ func (p *Parser) handleArgumentConstant(validator argumentValidator) (Node, erro
 	return nil, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected a value)", p.lex.ln, p.lex.posInLine, t.String())
 }
 
+func (p Parser) handleUnaryExpression(parent Node) (Node, error) {
+	unary := &constantExpression{value: p.lex.lastValue(), selector: true, recommended: ValueRecommendationString, unary: true}
+	next, _, err := p.lex.PeekNextToken()
+	if err != nil {
+		return unary, err
+	}
+	if isLogicToken(next) {
+		t, err := p.lex.ConsumeToken()
+		if err != nil {
+			return unary, err
+		}
+		conj := &binaryExpression{nodes: [2]Node{nil, nil}}
+		conj.operator = t.String()
+		conj.Add(unary)
+		rhs, err := p.build(conj)
+		if err != nil {
+			return conj, err
+		}
+		conj.Add(rhs)
+		return conj, nil
+	}
+	if isCompareToken(next) {
+		return unary, fmt.Errorf("ln:%d:%d dangling comparator", p.lex.ln, p.lex.posInLine)
+	}
+	if next == tokenBraceClose && parent.isRoot() {
+		return unary, fmt.Errorf("ln:%d:%d syntax error (invalid closing brace `)` )", p.lex.ln, p.lex.posInLine)
+	}
+	return unary, nil
+}
+
 func (p *Parser) handleBinaryExpression(t tokenType, parent Node) (Node, error) {
 	bin := &binaryExpression{nodes: [2]Node{nil, nil}}
 	bin.operator = t.String()
@@ -588,15 +618,40 @@ func (p *Parser) checkForEOF(t tokenType, node Node) (bool, error) {
 	return false, nil
 }
 
+func (p *Parser) checkEndOrError(t tokenType, parent Node) (bool, error) {
+	if ok, err := p.checkForEOF(t, parent); ok {
+		return ok, err
+	}
+	if err := p.checkImpossibleTokensOnEnter(t); err != nil {
+		return true, err
+	}
+	return false, nil
+}
+
+func (p *Parser) mergeSubExpression(sub, parent Node) (Node, error) {
+	t, err := p.lex.ConsumeToken()
+	if err != nil {
+		return parent, err
+	}
+	conj := &binaryExpression{nodes: [2]Node{nil, nil}}
+	conj.operator = t.String()
+	conj.Add(sub)
+
+	rhs, err := p.build(conj)
+	if err != nil {
+		return conj, err
+	}
+	conj.Add(rhs)
+	parent.Add(conj)
+	return parent, nil
+}
+
 func (p *Parser) build(parent Node) (Node, error) {
 	t, err := p.lex.ConsumeToken()
 	if err != nil {
 		return parent, err
 	}
-	if ok, err := p.checkForEOF(t, parent); ok {
-		return parent, err
-	}
-	if err = p.checkImpossibleTokensOnEnter(t); err != nil {
+	if ok, err := p.checkEndOrError(t, parent); ok {
 		return parent, err
 	}
 	if t == tokenBraceOpen {
@@ -617,39 +672,31 @@ func (p *Parser) build(parent Node) (Node, error) {
 			return parent, err
 		}
 		if isLogicToken(next) {
-			t, err = p.lex.ConsumeToken()
-			if err != nil {
-				return parent, err
-			}
-			conj := &binaryExpression{nodes: [2]Node{nil, nil}}
-			conj.operator = t.String()
-			conj.Add(sub)
-
-			rhs, err := p.build(conj)
-			if err != nil {
-				return conj, err
-			}
-			conj.Add(rhs)
-
-			parent.Add(conj)
-			return parent, nil
+			return p.mergeSubExpression(sub, parent)
 		}
 		if parent.NodeType() == NodeTypeExpression {
 			parent.Add(sub)
 			return parent, nil
 		}
 		return sub, nil
-
 	}
 
 	if t == tokenValue {
-		//TODO: consider unary (its in the draft but i dont see how its valuable for my purpose)
-		binary, err := p.handleBinaryExpression(t, parent)
-		if parent.isRoot() {
-			parent.Add(binary)
+		next, _, err := p.lex.PeekNextToken()
+		if err != nil {
 			return parent, err
 		}
-		return binary, err
+		var nextExpr Node
+		if isSeperatorUnary(next) {
+			nextExpr, err = p.handleUnaryExpression(parent)
+		} else {
+			nextExpr, err = p.handleBinaryExpression(t, parent)
+		}
+		if parent.isRoot() {
+			parent.Add(nextExpr)
+			return parent, err
+		}
+		return nextExpr, err
 	}
 	return parent, err
 

@@ -79,6 +79,10 @@ func isLogicToken(t tokenType) bool {
 	return t == tokenAND || t == tokenOR
 }
 
+func isSeperatorUnary(t tokenType) bool {
+	return isLogicToken(t) || t == tokenEOF || t == tokenBraceClose
+}
+
 // ErrUnexpectedInput is generated once unexpected input is met
 var ErrUnexpectedInput = errors.New("unexpected input")
 
