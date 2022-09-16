@@ -34,7 +34,13 @@ func (t *testVisitor) VisitComparison(comparison ComparisonDefintion) {
 	t.sb.WriteString(string(comparison))
 }
 func (t *testVisitor) VisitArgument(argument string, valueCtx ValueContext) {
+	if valueCtx.StartsWithWildcard() {
+		t.sb.WriteString("*")
+	}
 	t.sb.WriteString(argument)
+	if valueCtx.EndsWithWildcard() {
+		t.sb.WriteString("*")
+	}
 }
 
 func (t *testVisitor) String() string { return t.sb.String() }
@@ -70,7 +76,7 @@ func TestParse(t *testing.T) {
 		{fiql: "(title==foo*,test==a,fx==fa);(fml==x)", stringOuput: "((title == foo* OR test == a OR fx == fa) AND (fml == x))", errorOutput: nil},
 		{fiql: "(title==foo*);(fml==x,(xfs==a;f==fx)", stringOuput: "", errorOutput: errors.New("ln:1:36 syntax error (unclosed brace `)` )")},
 		{fiql: "title=ffoo*", stringOuput: "", errorOutput: errors.New("ln:1:6 unexpected input (got `=f` but expected one of ==,!=,=gt=,=ge=,=lt=,=le=,=in=,=q=)")},
-		{fiql: "title==fo,o*", stringOuput: "", errorOutput: errors.New("ln:1:12 syntax error (got `eof` but expected a value)")},
+		{fiql: "title==fo,o*", stringOuput: "", errorOutput: errors.New("ln:1:12 syntax error (got `*` but expected a value)")},
 
 		{fiql: `a==value
 		; 
@@ -80,7 +86,7 @@ func TestParse(t *testing.T) {
 		
 		)`, stringOuput: "", errorOutput: errors.New("ln:3:3 syntax error (invalid closing brace `)` )")},
 		{fiql: "column=ge=invalid", stringOuput: "", errorOutput: errors.New("ln:1:17 syntax error (got `invalid` but expected number or date or duration)")},
-		{fiql: "column=in=123", stringOuput: "", errorOutput: errors.New("ln:1:13 syntax error (got `123` but expected in clause [a*b*c])")},
+		{fiql: "column=in=123", stringOuput: "", errorOutput: errors.New("ln:1:13 syntax error (got `123` but expected in clause [a+b+c])")},
 		{fiql: "column=le=P1.4Y2M", stringOuput: "(column <= P1.4Y2M)", errorOutput: nil},
 		{fiql: "column=le=+P5W", stringOuput: "(column <= +P5W)", errorOutput: nil},
 		{fiql: "column=le=-P5W", stringOuput: "(column <= -P5W)", errorOutput: nil},
@@ -190,7 +196,7 @@ func TestRecommendedTypeString(t *testing.T) {
 	v := &testTypeVisitor{}
 	tree.Accept(v)
 	assert.Equal(t, "string", v.String())
-	assert.Equal(t, "foo*", v.raw)
+	assert.Equal(t, "foo", v.raw)
 }
 
 func TestRecommendedTypeStrings(t *testing.T) {
@@ -207,7 +213,7 @@ func TestRecommendedTypeStrings(t *testing.T) {
 
 func TestRecommendedTypeTuple(t *testing.T) {
 	p := NewParser()
-	tree, err := p.Parse("title=in=[a*b]")
+	tree, err := p.Parse("title=in=[a+b]")
 	assert.NoError(t, err)
 	if err != nil {
 		return
@@ -279,7 +285,7 @@ func TestRecommendedTypeDuration(t *testing.T) {
 	v := &testTypeVisitor{}
 	tree.Accept(v)
 	assert.Equal(t, "duration", v.String())
-	assert.Equal(t, ISO8601Duration{Negative: true, Years: 5}, v.raw)
+	assert.Equal(t, ISO8601Duration{Negative: true, Years: 5, _string: "-P5Y"}, v.raw)
 }
 
 func TestRecommendedTypeDurationEq(t *testing.T) {
@@ -292,7 +298,7 @@ func TestRecommendedTypeDurationEq(t *testing.T) {
 	v := &testTypeVisitor{}
 	tree.Accept(v)
 	assert.Equal(t, "duration", v.String())
-	assert.Equal(t, ISO8601Duration{Negative: true, Years: 5}, v.raw)
+	assert.Equal(t, ISO8601Duration{Negative: true, Years: 5, _string: "-P5Y"}, v.raw)
 }
 
 func TestJsonMarshall(t *testing.T) {

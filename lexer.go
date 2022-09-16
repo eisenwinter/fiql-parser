@@ -11,6 +11,7 @@ import (
 type tokenType int
 
 const tokenValue tokenType = 10
+const tokenWildcard tokenType = 11
 
 const tokenBraceOpen tokenType = 20  // (
 const tokenBraceClose tokenType = 21 // )
@@ -36,6 +37,8 @@ func (t tokenType) String() string {
 	switch t {
 	case tokenValue:
 		return "Value"
+	case tokenWildcard:
+		return "*"
 	case tokenBraceOpen:
 		return "("
 	case tokenBraceClose:
@@ -60,11 +63,8 @@ func (t tokenType) String() string {
 		return "in"
 	case tokenCompareQ:
 		return "query"
-	case tokenEOF:
-		return "eof"
-	default:
-		return "unknown"
 	}
+	return "eof"
 }
 
 func isCompareToken(t tokenType) bool {
@@ -176,7 +176,12 @@ func (p *lexer) consume() rune {
 func (p *lexer) readValue() (tokenType, string, error) {
 	var b bytes.Buffer
 	escaped := false
-	b.WriteRune(p.consume())
+	c := p.consume()
+	if c == '\\' {
+		escaped = true
+	} else {
+		b.WriteRune(c)
+	}
 	for {
 		if p.pos >= len(p.input) {
 			break
@@ -186,7 +191,7 @@ func (p *lexer) readValue() (tokenType, string, error) {
 			if unicode.IsSpace(v) {
 				break
 			}
-			if !escaped && (v == ';' || v == ',' || v == '!' || v == '=' || v == ')') {
+			if !escaped && (v == ';' || v == ',' || v == '!' || v == '=' || v == ')' || v == '*') {
 				break
 			}
 		}
@@ -248,6 +253,10 @@ func (p *lexer) ConsumeToken() (tokenType, error) {
 		if r == ',' {
 			p.consume()
 			return tokenOR, nil
+		}
+		if r == '*' {
+			p.consume()
+			return tokenWildcard, nil
 		}
 		t, _, err := p.readValue()
 		return t, err

@@ -3,6 +3,7 @@ package fiqlparser
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strconv"
 	"unicode"
 )
@@ -19,6 +20,22 @@ type ISO8601Duration struct {
 	Hours    float64
 	Minutes  float64
 	Seconds  float64
+	_string  string
+}
+
+// String returns the string representation as supplied
+func (i *ISO8601Duration) String() string {
+	return i._string
+}
+
+// AsMilliseconds returns a approximation of the duration in miliseconds, its a naive implemntation
+func (i *ISO8601Duration) AsMilliseconds() int64 {
+	return int64(math.Round(i.Seconds*1000 + i.Minutes*60000 + i.Hours*60000*60 + i.Days*60000*60*24 + i.Weeks*60000*60*24*7 + i.Months*2629800000 + i.Years*2629800000*12))
+}
+
+// AsSeconds returns the seconds of the duration, approximated
+func (i *ISO8601Duration) AsSeconds() int64 {
+	return i.AsMilliseconds() / 1000
 }
 
 type iSO8601DurationConverter struct{}
@@ -48,6 +65,7 @@ func (i *iSO8601DurationConverter) tryParseISO8601Duration(input string) (ISO860
 	if len(input) == 0 {
 		return d, nil
 	}
+	d._string = input
 	pos := 0
 
 	if input[0] == '-' {

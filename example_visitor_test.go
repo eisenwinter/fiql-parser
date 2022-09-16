@@ -34,7 +34,13 @@ func (t *SimpleTestVisitor) VisitComparison(comparison ComparisonDefintion) {
 
 // VisitArgument is called when an argument is visited
 func (t *SimpleTestVisitor) VisitArgument(argument string, valueCtx ValueContext) {
+	if valueCtx.StartsWithWildcard() {
+		t.sb.WriteString("*")
+	}
 	t.sb.WriteString(argument)
+	if valueCtx.EndsWithWildcard() {
+		t.sb.WriteString("*")
+	}
 }
 
 // String returns the colected data as string

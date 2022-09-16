@@ -90,8 +90,10 @@ const ValueRecommendationTuple ValueRecommendation = "tuple"
 // ValueContext supplies the recommended type and
 // conversion helpers
 type ValueContext struct {
-	r   ValueRecommendation
-	val string
+	pre  bool
+	post bool
+	r    ValueRecommendation
+	val  string
 }
 
 // ValueRecommendation returns the value recommendation
@@ -99,32 +101,19 @@ func (c ValueContext) ValueRecommendation() ValueRecommendation {
 	return c.r
 }
 
-// StartsWithWildcard indicates wheter or not the given argument starts with a wildcard
+// StartsWithWildcard indicates whether or not the given argument starts with a wildcard
 func (c ValueContext) StartsWithWildcard() bool {
-	if len(c.val) > 1 && strings.HasPrefix(c.val, "*") {
-		return true
-	}
-	return false
+	return c.pre
 }
 
-// EndsWithWildcard indicates wheter or not the given argument ends with a wildcard
+// EndsWithWildcard indicates whether or not the given argument ends with a wildcard
 func (c ValueContext) EndsWithWildcard() bool {
-	if len(c.val) > 1 && strings.HasSuffix(c.val, "*") {
-		return true
-	}
-	return false
+	return c.post
 }
 
-// AsString returns the argument as string, with wildcards removed
+// AsString returns the argument as string
 func (c ValueContext) AsString() string {
-	val := c.val
-	if c.StartsWithWildcard() {
-		val = strings.TrimPrefix(val, "*")
-	}
-	if c.EndsWithWildcard() {
-		val = strings.TrimSuffix(val, "*")
-	}
-	return val
+	return c.val
 }
 
 // AsDuration is a helper method for converting duration values
@@ -156,14 +145,14 @@ func (c ValueContext) AsTuple() ([]string, error) {
 	tupple := make([]string, 0)
 	escaped := false
 	for _, c := range c.val[1 : len(c.val)-1] {
-		if !escaped && c == '*' {
+		if !escaped && c == '+' {
 			tupple = append(tupple, b.String())
 			b.Reset()
 		}
 		if !escaped && c == '\\' {
 			escaped = true
 		}
-		if escaped && c == '*' {
+		if escaped && c == '+' {
 			escaped = false
 		}
 
@@ -359,9 +348,11 @@ func (e *binaryExpression) String() string {
 }
 
 type constantExpression struct {
-	selector    bool
-	value       string
-	recommended ValueRecommendation
+	prefixWildcard bool
+	suffixWildcard bool
+	selector       bool
+	value          string
+	recommended    ValueRecommendation
 }
 
 func (e *constantExpression) isRoot() bool {
@@ -381,8 +372,10 @@ func (e *constantExpression) Accept(visitor NodeVisitor) {
 		visitor.VisitSelector(e.value)
 	} else {
 		visitor.VisitArgument(e.value, ValueContext{
-			r:   e.recommended,
-			val: e.value,
+			pre:  e.prefixWildcard,
+			post: e.suffixWildcard,
+			r:    e.recommended,
+			val:  e.value,
 		})
 	}
 
@@ -394,7 +387,7 @@ func (e *constantExpression) MarshalJSON() ([]byte, error) {
 		Value string
 	}{
 		Type:  string(e.NodeType()),
-		Value: e.value,
+		Value: e.String(),
 	})
 	if err != nil {
 		return nil, err
@@ -403,7 +396,15 @@ func (e *constantExpression) MarshalJSON() ([]byte, error) {
 }
 
 func (e *constantExpression) String() string {
-	return e.value
+	var b strings.Builder
+	if e.prefixWildcard {
+		b.WriteRune('*')
+	}
+	b.WriteString(e.value)
+	if e.suffixWildcard {
+		b.WriteRune('*')
+	}
+	return b.String()
 }
 
 func (e *constantExpression) Children() []Node {
@@ -433,6 +434,8 @@ func isDateValue(stringDate string) bool {
 	return err == nil
 }
 
+type argumentValidator func(string) (bool, ValueRecommendation, string)
+
 func numberOrDateExpressionValidator(i string) (bool, ValueRecommendation, string) {
 	if numericRegex.MatchString(i) {
 		return true, ValueRecommendationNumber, ""
@@ -449,7 +452,7 @@ func numberOrDateExpressionValidator(i string) (bool, ValueRecommendation, strin
 }
 
 func inValidator(i string) (bool, ValueRecommendation, string) {
-	return i[0] == '[' && i[len(i)-1] == ']', ValueRecommendationTuple, "in clause [a*b*c]"
+	return i[0] == '[' && i[len(i)-1] == ']', ValueRecommendationTuple, "in clause [a+b+c]"
 }
 
 func defaultValidator(i string) (bool, ValueRecommendation, string) {
@@ -465,6 +468,41 @@ func defaultValidator(i string) (bool, ValueRecommendation, string) {
 	return true, ValueRecommendationString, ""
 }
 
+func (p *Parser) handleArgumentConstant(validator argumentValidator) (Node, error) {
+	t, err := p.lex.ConsumeToken()
+	if err != nil {
+		return nil, err
+	}
+	prefixWildcard := false
+	if t == tokenWildcard {
+		t, err = p.lex.ConsumeToken()
+		if err != nil {
+			return nil, err
+		}
+		prefixWildcard = true
+	}
+	if t == tokenValue {
+		ok, rec, msg := validator(p.lex.lastValue())
+		if !ok {
+			return nil, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected %s)", p.lex.ln, p.lex.posInLine, p.lex.lastValue(), msg)
+		}
+		con := &constantExpression{prefixWildcard: prefixWildcard, value: p.lex.lastValue(), recommended: rec}
+		n, _, err := p.lex.PeekNextToken()
+		if err != nil {
+			return nil, err
+		}
+		if n == tokenWildcard {
+			_, err = p.lex.ConsumeToken()
+			if err != nil {
+				return nil, err
+			}
+			con.suffixWildcard = true
+		}
+		return con, nil
+	}
+	return nil, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected a value)", p.lex.ln, p.lex.posInLine, t.String())
+}
+
 func (p *Parser) handleBinaryExpression(t tokenType, parent Node) (Node, error) {
 	bin := &binaryExpression{nodes: [2]Node{nil, nil}}
 	bin.operator = t.String()
@@ -478,6 +516,7 @@ func (p *Parser) handleBinaryExpression(t tokenType, parent Node) (Node, error) 
 	} else {
 		return bin, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected a value)", p.lex.ln, p.lex.posInLine, t.String())
 	}
+
 	validator := defaultValidator
 	if isNumberOrDateComparision(t) {
 		validator = numberOrDateExpressionValidator
@@ -485,19 +524,11 @@ func (p *Parser) handleBinaryExpression(t tokenType, parent Node) (Node, error) 
 	if isInToken(t) {
 		validator = inValidator
 	}
-	t, err = p.lex.ConsumeToken()
+	con, err := p.handleArgumentConstant(validator)
 	if err != nil {
 		return bin, err
 	}
-	if t == tokenValue {
-		ok, rec, msg := validator(p.lex.lastValue())
-		if !ok {
-			return bin, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected %s)", p.lex.ln, p.lex.posInLine, p.lex.lastValue(), msg)
-		}
-		bin.Add(&constantExpression{value: p.lex.lastValue(), recommended: rec})
-	} else {
-		return bin, fmt.Errorf("ln:%d:%d syntax error (got `%s` but expected a value)", p.lex.ln, p.lex.posInLine, t.String())
-	}
+	bin.Add(con)
 
 	next, _, err := p.lex.PeekNextToken()
 	if err != nil {

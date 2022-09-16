@@ -53,6 +53,54 @@ func TestTryParseISO8601Duration(t *testing.T) {
 		} else {
 			assert.Error(t, err)
 		}
-		assert.Equal(t, v.duration, d)
+		assert.Equal(t, v.duration.Negative, d.Negative)
+		assert.Equal(t, v.duration.Days, d.Days)
+		assert.Equal(t, v.duration.Hours, d.Hours)
+		assert.Equal(t, v.duration.Minutes, d.Minutes)
+		assert.Equal(t, v.duration.Months, d.Months)
+		assert.Equal(t, v.duration.Seconds, d.Seconds)
+		assert.Equal(t, v.duration.Weeks, d.Weeks)
+		assert.Equal(t, v.duration.Years, d.Years)
+	}
+}
+
+func TestAsMiliseconds(t *testing.T) {
+	var values = []struct {
+		input string
+		ms    int64
+	}{
+		//One year, one month, one day, one hour, one minute, one second, and 100 milliseconds
+		{input: "P1Y1M1DT1H1M1.1S", ms: 34277461100},
+		//Forty days
+		{input: "P40D", ms: 3456000000},
+		//A year and a day
+		{input: "P1Y1D", ms: 31644000000},
+		//Three days, four hours and 59 minutes
+		{input: "P3DT4H59M", ms: 277140000},
+		//Two and a half hours
+		{input: "PT2H30M", ms: 9000000},
+		//One month
+		{input: "P1M", ms: 2629800000},
+		//One minute
+		{input: "PT1M", ms: 60000},
+		//2.1 milliseconds - rounded
+		{input: "PT0.0021S", ms: 2},
+		//4 milliseconds
+		{input: "PT0.004S", ms: 4},
+		// one week
+		{input: "P1W", ms: 604800000},
+		{input: "P2W", ms: 1209600000},
+		// zeros
+		{input: "PT0S", ms: 0},
+		{input: "P0D", ms: 0},
+		{input: "", ms: 0},
+	}
+
+	for _, v := range values {
+		d, err := durationConverter.tryParseISO8601Duration(v.input)
+		if err != nil {
+			assert.NoError(t, err)
+		}
+		assert.Equal(t, v.ms, d.AsMilliseconds(), "failed %s", v.input)
 	}
 }
