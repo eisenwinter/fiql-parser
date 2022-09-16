@@ -75,9 +75,9 @@ const ValueRecommendationDuration ValueRecommendation = "duration"
 // ValueRecommendationNumber suggests a number attribute
 const ValueRecommendationNumber ValueRecommendation = "number"
 
-// ValueContext supplies the recommended type and
-// conversion helpers
-type ValueContext struct {
+// ArgumentContext habours the value and
+// supplies the recommended type + conversion helpers
+type ArgumentContext struct {
 	pre  bool
 	post bool
 	r    ValueRecommendation
@@ -85,43 +85,79 @@ type ValueContext struct {
 }
 
 // ValueRecommendation returns the value recommendation
-func (c ValueContext) ValueRecommendation() ValueRecommendation {
+func (c ArgumentContext) ValueRecommendation() ValueRecommendation {
 	return c.r
 }
 
 // StartsWithWildcard indicates whether or not the given argument starts with a wildcard
-func (c ValueContext) StartsWithWildcard() bool {
+func (c ArgumentContext) StartsWithWildcard() bool {
 	return c.pre
 }
 
 // EndsWithWildcard indicates whether or not the given argument ends with a wildcard
-func (c ValueContext) EndsWithWildcard() bool {
+func (c ArgumentContext) EndsWithWildcard() bool {
 	return c.post
 }
 
 // AsString returns the argument as string
-func (c ValueContext) AsString() string {
+func (c ArgumentContext) AsString() string {
 	return c.val
 }
 
 // AsDuration is a helper method for converting duration values
-func (c ValueContext) AsDuration() (ISO8601Duration, error) {
+func (c ArgumentContext) AsDuration() (ISO8601Duration, error) {
 	return durationConverter.tryParseISO8601Duration(c.val)
 }
 
 // AsTime is a helper method for converting duration values
-func (c ValueContext) AsTime() (time.Time, error) {
+func (c ArgumentContext) AsTime() (time.Time, error) {
 	return time.Parse(time.RFC3339, c.val)
 }
 
 // AsInt returns the underlying value as int
-func (c ValueContext) AsInt() (int, error) {
+func (c ArgumentContext) AsInt() (int, error) {
 	return strconv.Atoi(c.val)
 }
 
 // AsFloat64 returns the underlying value as float64
-func (c ValueContext) AsFloat64() (float64, error) {
+func (c ArgumentContext) AsFloat64() (float64, error) {
 	return strconv.ParseFloat(c.val, 64)
+}
+
+// SelectorContext contains the selector details
+type SelectorContext struct {
+	unary    bool
+	selector string
+}
+
+// Selector returns the selector as string
+func (s SelectorContext) Selector() string {
+	return s.selector
+}
+
+// IsUnary returns true if the selector has no constraint
+func (s SelectorContext) IsUnary() bool {
+	return s.unary
+}
+
+// OperatorContext contains the operator details
+type OperatorContext struct {
+	op OperatorDefintion
+}
+
+// Operator returns the operator
+func (c OperatorContext) Operator() OperatorDefintion {
+	return c.op
+}
+
+// ComparisonContext contains the comerator details
+type ComparisonContext struct {
+	comparison ComparisonDefintion
+}
+
+// Comparison returns the used comparison
+func (c ComparisonContext) Comparison() ComparisonDefintion {
+	return c.comparison
 }
 
 //Basically follow naming of https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00#section-3.2
@@ -135,16 +171,16 @@ type NodeVisitor interface {
 	VisitExpressionLeft()
 
 	// VisitOperator is called when a operator is visited
-	VisitOperator(operator OperatorDefintion)
+	VisitOperator(operatorCtx OperatorContext)
 
 	// VisitSelector is called when a selector is visited
-	VisitSelector(selector string)
+	VisitSelector(selectorCtx SelectorContext)
 
 	// VisitComparison is called when a comparison is visited
-	VisitComparison(comparison ComparisonDefintion)
+	VisitComparison(comparisonCtx ComparisonContext)
 
 	// VisitArgument is called when a argument is visited
-	VisitArgument(argument string, valueCtx ValueContext)
+	VisitArgument(argumentCtx ArgumentContext)
 }
 
 // Node represents a AST node
@@ -255,9 +291,9 @@ func (e *binaryExpression) Accept(visitor NodeVisitor) {
 	}
 	//conjs
 	if e.operator == "AND" || e.operator == "OR" {
-		visitor.VisitOperator(OperatorDefintion(e.operator))
+		visitor.VisitOperator(OperatorContext{op: OperatorDefintion(e.operator)})
 	} else {
-		visitor.VisitComparison(ComparisonDefintion(e.operator))
+		visitor.VisitComparison(ComparisonContext{comparison: ComparisonDefintion(e.operator)})
 	}
 	if e.nodes[1] != nil {
 		e.nodes[1].Accept(visitor)
@@ -316,6 +352,7 @@ type constantExpression struct {
 	selector       bool
 	value          string
 	recommended    ValueRecommendation
+	unary          bool
 }
 
 func (e *constantExpression) isRoot() bool {
@@ -332,9 +369,9 @@ func (e *constantExpression) Add(node Node) {
 
 func (e *constantExpression) Accept(visitor NodeVisitor) {
 	if e.selector {
-		visitor.VisitSelector(e.value)
+		visitor.VisitSelector(SelectorContext{unary: e.unary, selector: e.value})
 	} else {
-		visitor.VisitArgument(e.value, ValueContext{
+		visitor.VisitArgument(ArgumentContext{
 			pre:  e.prefixWildcard,
 			post: e.suffixWildcard,
 			r:    e.recommended,

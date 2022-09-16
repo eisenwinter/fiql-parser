@@ -18,27 +18,29 @@ func (t *SimpleTestVisitor) VisitExpressionEntered() { t.sb.WriteString("(") }
 func (t *SimpleTestVisitor) VisitExpressionLeft() { t.sb.WriteString(")") }
 
 // VisitOperator is called when a operator is visited
-func (t *SimpleTestVisitor) VisitOperator(operator OperatorDefintion) {
+func (t *SimpleTestVisitor) VisitOperator(operatorCtx OperatorContext) {
 	t.sb.WriteRune(' ')
-	t.sb.WriteString(string(operator))
+	t.sb.WriteString(string(operatorCtx.Operator()))
 	t.sb.WriteByte(' ')
 }
 
 // VisitSelector is called when a selector is visited
-func (t *SimpleTestVisitor) VisitSelector(selector string) { t.sb.WriteString(selector) }
+func (t *SimpleTestVisitor) VisitSelector(selectorCtx SelectorContext) {
+	t.sb.WriteString(selectorCtx.Selector())
+}
 
 // VisitComparison is called when a comparison is visited
-func (t *SimpleTestVisitor) VisitComparison(comparison ComparisonDefintion) {
-	t.sb.WriteString(string(comparison))
+func (t *SimpleTestVisitor) VisitComparison(comparisonCtx ComparisonContext) {
+	t.sb.WriteString(string(comparisonCtx.Comparison()))
 }
 
 // VisitArgument is called when an argument is visited
-func (t *SimpleTestVisitor) VisitArgument(argument string, valueCtx ValueContext) {
-	if valueCtx.StartsWithWildcard() {
+func (t *SimpleTestVisitor) VisitArgument(argumentCtx ArgumentContext) {
+	if argumentCtx.StartsWithWildcard() {
 		t.sb.WriteString("*")
 	}
-	t.sb.WriteString(argument)
-	if valueCtx.EndsWithWildcard() {
+	t.sb.WriteString(argumentCtx.AsString())
+	if argumentCtx.EndsWithWildcard() {
 		t.sb.WriteString("*")
 	}
 }

@@ -26,19 +26,23 @@ type testVisitor struct {
 	sb strings.Builder
 }
 
-func (t *testVisitor) VisitExpressionEntered()                  { t.sb.WriteString("(") }
-func (t *testVisitor) VisitExpressionLeft()                     { t.sb.WriteString(")") }
-func (t *testVisitor) VisitOperator(operator OperatorDefintion) { t.sb.WriteString(string(operator)) }
-func (t *testVisitor) VisitSelector(selector string)            { t.sb.WriteString(selector) }
-func (t *testVisitor) VisitComparison(comparison ComparisonDefintion) {
-	t.sb.WriteString(string(comparison))
+func (t *testVisitor) VisitExpressionEntered() { t.sb.WriteString("(") }
+func (t *testVisitor) VisitExpressionLeft()    { t.sb.WriteString(")") }
+func (t *testVisitor) VisitOperator(operatorCtx OperatorContext) {
+	t.sb.WriteString(string(operatorCtx.Operator()))
 }
-func (t *testVisitor) VisitArgument(argument string, valueCtx ValueContext) {
-	if valueCtx.StartsWithWildcard() {
+func (t *testVisitor) VisitSelector(selectorCtx SelectorContext) {
+	t.sb.WriteString(selectorCtx.Selector())
+}
+func (t *testVisitor) VisitComparison(comparisonCtx ComparisonContext) {
+	t.sb.WriteString(string(comparisonCtx.Comparison()))
+}
+func (t *testVisitor) VisitArgument(argumentCtx ArgumentContext) {
+	if argumentCtx.StartsWithWildcard() {
 		t.sb.WriteString("*")
 	}
-	t.sb.WriteString(argument)
-	if valueCtx.EndsWithWildcard() {
+	t.sb.WriteString(argumentCtx.AsString())
+	if argumentCtx.EndsWithWildcard() {
 		t.sb.WriteString("*")
 	}
 }
@@ -159,22 +163,22 @@ type testTypeVisitor struct {
 	raw interface{}
 }
 
-func (t *testTypeVisitor) VisitExpressionEntered()                        {}
-func (t *testTypeVisitor) VisitExpressionLeft()                           {}
-func (t *testTypeVisitor) VisitOperator(operator OperatorDefintion)       {}
-func (t *testTypeVisitor) VisitSelector(selector string)                  {}
-func (t *testTypeVisitor) VisitComparison(comparison ComparisonDefintion) {}
-func (t *testTypeVisitor) VisitArgument(argument string, valueCtx ValueContext) {
-	t.sb.WriteString(string(valueCtx.ValueRecommendation()))
-	switch valueCtx.ValueRecommendation() {
+func (t *testTypeVisitor) VisitExpressionEntered()                         {}
+func (t *testTypeVisitor) VisitExpressionLeft()                            {}
+func (t *testTypeVisitor) VisitOperator(operatorCtx OperatorContext)       {}
+func (t *testTypeVisitor) VisitSelector(selectorCtx SelectorContext)       {}
+func (t *testTypeVisitor) VisitComparison(comparisonCtx ComparisonContext) {}
+func (t *testTypeVisitor) VisitArgument(argumentCtx ArgumentContext) {
+	t.sb.WriteString(string(argumentCtx.ValueRecommendation()))
+	switch argumentCtx.ValueRecommendation() {
 	case ValueRecommendationDateTime:
-		t.raw, _ = valueCtx.AsTime()
+		t.raw, _ = argumentCtx.AsTime()
 	case ValueRecommendationDuration:
-		t.raw, _ = valueCtx.AsDuration()
+		t.raw, _ = argumentCtx.AsDuration()
 	case ValueRecommendationNumber:
-		t.raw, _ = valueCtx.AsFloat64()
+		t.raw, _ = argumentCtx.AsFloat64()
 	default:
-		t.raw = argument
+		t.raw = argumentCtx.AsString()
 	}
 }
 
