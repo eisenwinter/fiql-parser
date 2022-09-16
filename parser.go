@@ -3,7 +3,6 @@
 // The parser does not adhere 100% to the fiql spec
 // which can be found https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00.
 //
-// The main difference is that there is no support for unary expressions
 // The parser produces a walkable AST which can be walked by using a visitor.
 package fiqlparser
 
