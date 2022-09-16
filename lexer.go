@@ -26,10 +26,6 @@ const tokenCompareGt = 63       // =gt=
 const tokenCompareLt = 64       // =lt=
 const tokenCompareGte = 65      // =ge=
 const tokenCompareLte = 66      // =le=
-//additional comparisons
-
-const tokenComapreIn = 67 // =in=
-const tokenCompareQ = 68  // =q= can be used for fuzzy earching etc, q is for query
 
 const tokenEOF = 0
 
@@ -59,17 +55,13 @@ func (t tokenType) String() string {
 		return ">="
 	case tokenCompareLte:
 		return "<="
-	case tokenComapreIn:
-		return "in"
-	case tokenCompareQ:
-		return "query"
 	}
 	return "eof"
 }
 
 func isCompareToken(t tokenType) bool {
 	switch t {
-	case tokenCompareEqual, tokenCompareNotEqual, tokenCompareGt, tokenCompareLt, tokenCompareGte, tokenCompareLte, tokenComapreIn, tokenCompareQ:
+	case tokenCompareEqual, tokenCompareNotEqual, tokenCompareGt, tokenCompareLt, tokenCompareGte, tokenCompareLte:
 		return true
 	}
 	return false
@@ -81,10 +73,6 @@ func isNumberOrDateComparision(t tokenType) bool {
 		return true
 	}
 	return false
-}
-
-func isInToken(t tokenType) bool {
-	return t == tokenComapreIn
 }
 
 func isLogicToken(t tokenType) bool {
@@ -123,12 +111,8 @@ func (p *lexer) toCompareToken(cmp string) (tokenType, error) {
 		return tokenCompareLt, nil
 	case "=le=":
 		return tokenCompareLte, nil
-	case "=in=":
-		return tokenComapreIn, nil
-	case "=q=":
-		return tokenCompareQ, nil
 	}
-	return tokenEOF, fmt.Errorf("ln:%d:%d %w (got `%s` but expected one of ==,!=,=gt=,=ge=,=lt=,=le=,=in=,=q=)", p.ln, p.posInLine, ErrUnexpectedInput, cmp)
+	return tokenEOF, fmt.Errorf("ln:%d:%d %w (got `%s` but expected one of ==,!=,=gt=,=ge=,=lt=,=le=)", p.ln, p.posInLine, ErrUnexpectedInput, cmp)
 }
 
 func (p *lexer) readComparator() (tokenType, error) {
@@ -140,9 +124,9 @@ func (p *lexer) readComparator() (tokenType, error) {
 		if !ok {
 			return tokenEOF, ErrUnexpectedEOF
 		}
-		if r != '=' && r != 'g' && r != 'l' && r != 't' && r != 'e' && r != 'q' && r != 'i' && r != 'n' {
+		if r != '=' && r != 'g' && r != 'l' && r != 't' && r != 'e' {
 			b.WriteRune(r)
-			return tokenEOF, fmt.Errorf("ln:%d:%d %w (got `%s` but expected one of ==,!=,=gt=,=ge=,=lt=,=le=,=in=,=q=)", p.ln, p.posInLine, ErrUnexpectedInput, b.String())
+			return tokenEOF, fmt.Errorf("ln:%d:%d %w (got `%s` but expected one of ==,!=,=gt=,=ge=,=lt=,=le=)", p.ln, p.posInLine, ErrUnexpectedInput, b.String())
 		}
 		b.WriteRune(rune(r))
 		p.consume()

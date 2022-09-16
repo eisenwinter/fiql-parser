@@ -4,13 +4,10 @@
 // which can be found https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00.
 //
 // The main difference is that there is no support for unary expressions
-// and there are two custom comparison operators which are not part of the spec
-// =in= and =q=.
 // The parser produces a walkable AST which can be walked by using a visitor.
 package fiqlparser
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -63,12 +60,6 @@ const ComparisonGte ComparisonDefintion = ">="
 // ComparisonLte less or equal comparison
 const ComparisonLte ComparisonDefintion = "<="
 
-// ComparisonIn in comparison
-const ComparisonIn ComparisonDefintion = "in"
-
-// ComparisonQ query comparison
-const ComparisonQ ComparisonDefintion = "query"
-
 // ValueRecommendation suggests a detected datatype for a attribute
 type ValueRecommendation string
 
@@ -83,9 +74,6 @@ const ValueRecommendationDuration ValueRecommendation = "duration"
 
 // ValueRecommendationNumber suggests a number attribute
 const ValueRecommendationNumber ValueRecommendation = "number"
-
-// ValueRecommendationTuple suggests a tuple attribute
-const ValueRecommendationTuple ValueRecommendation = "tuple"
 
 // ValueContext supplies the recommended type and
 // conversion helpers
@@ -134,31 +122,6 @@ func (c ValueContext) AsInt() (int, error) {
 // AsFloat64 returns the underlying value as float64
 func (c ValueContext) AsFloat64() (float64, error) {
 	return strconv.ParseFloat(c.val, 64)
-}
-
-// AsTuple returns the underlying as tuple (slice of strings)
-func (c ValueContext) AsTuple() ([]string, error) {
-	if len(c.val) < 2 || !(c.val[0] == '[' && c.val[len(c.val)-1] == ']') {
-		return []string{}, fmt.Errorf("invalid tuple %s", c.val)
-	}
-	var b bytes.Buffer
-	tupple := make([]string, 0)
-	escaped := false
-	for _, c := range c.val[1 : len(c.val)-1] {
-		if !escaped && c == '+' {
-			tupple = append(tupple, b.String())
-			b.Reset()
-		}
-		if !escaped && c == '\\' {
-			escaped = true
-		}
-		if escaped && c == '+' {
-			escaped = false
-		}
-
-		b.WriteRune(c)
-	}
-	return tupple, nil
 }
 
 //Basically follow naming of https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00#section-3.2
@@ -451,10 +414,6 @@ func numberOrDateExpressionValidator(i string) (bool, ValueRecommendation, strin
 	return false, ValueRecommendationString, "number or date or duration"
 }
 
-func inValidator(i string) (bool, ValueRecommendation, string) {
-	return i[0] == '[' && i[len(i)-1] == ']', ValueRecommendationTuple, "in clause [a+b+c]"
-}
-
 func defaultValidator(i string) (bool, ValueRecommendation, string) {
 	if isDateValue(i) {
 		return true, ValueRecommendationDateTime, ""
@@ -520,9 +479,6 @@ func (p *Parser) handleBinaryExpression(t tokenType, parent Node) (Node, error) 
 	validator := defaultValidator
 	if isNumberOrDateComparision(t) {
 		validator = numberOrDateExpressionValidator
-	}
-	if isInToken(t) {
-		validator = inValidator
 	}
 	con, err := p.handleArgumentConstant(validator)
 	if err != nil {

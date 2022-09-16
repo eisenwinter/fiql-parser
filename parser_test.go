@@ -52,7 +52,6 @@ func TestParse(t *testing.T) {
 		errorOutput error
 	}{
 		{fiql: "(column==value)", stringOuput: "((column == value))", errorOutput: nil},
-		{fiql: "column=q=value", stringOuput: "(column query value)", errorOutput: nil},
 		{fiql: "column==value", stringOuput: "(column == value)", errorOutput: nil},
 		{fiql: "column!=value", stringOuput: "(column <> value)", errorOutput: nil},
 		{fiql: "column=ge=1", stringOuput: "(column >= 1)", errorOutput: nil},
@@ -61,8 +60,6 @@ func TestParse(t *testing.T) {
 		{fiql: "column=lt=100", stringOuput: "(column < 100)", errorOutput: nil},
 		{fiql: "column=lt=+100", stringOuput: "(column < +100)", errorOutput: nil},
 		{fiql: "column=lt=-100", stringOuput: "(column < -100)", errorOutput: nil},
-		{fiql: "column=in=[a]", stringOuput: "(column in [a])", errorOutput: nil},
-		{fiql: "column=q=value", stringOuput: "(column query value)", errorOutput: nil},
 		{fiql: "column      ==        value", stringOuput: "(column == value)", errorOutput: nil},
 		{fiql: "updated=gt=2003-12-13T00:00:00Z", stringOuput: "(updated > 2003-12-13T00:00:00Z)", errorOutput: nil},
 		{fiql: "column==value,b==a", stringOuput: "(column == value OR b == a)", errorOutput: nil},
@@ -75,7 +72,7 @@ func TestParse(t *testing.T) {
 		{fiql: "(title==foo*);(fml==x,(xfs==a;f==fx))", stringOuput: "((title == foo*) AND (fml == x OR (xfs == a AND f == fx)))", errorOutput: nil},
 		{fiql: "(title==foo*,test==a,fx==fa);(fml==x)", stringOuput: "((title == foo* OR test == a OR fx == fa) AND (fml == x))", errorOutput: nil},
 		{fiql: "(title==foo*);(fml==x,(xfs==a;f==fx)", stringOuput: "", errorOutput: errors.New("ln:1:36 syntax error (unclosed brace `)` )")},
-		{fiql: "title=ffoo*", stringOuput: "", errorOutput: errors.New("ln:1:6 unexpected input (got `=f` but expected one of ==,!=,=gt=,=ge=,=lt=,=le=,=in=,=q=)")},
+		{fiql: "title=ffoo*", stringOuput: "", errorOutput: errors.New("ln:1:6 unexpected input (got `=f` but expected one of ==,!=,=gt=,=ge=,=lt=,=le=)")},
 		{fiql: "title==fo,o*", stringOuput: "", errorOutput: errors.New("ln:1:12 syntax error (got `*` but expected a value)")},
 
 		{fiql: `a==value
@@ -86,7 +83,6 @@ func TestParse(t *testing.T) {
 		
 		)`, stringOuput: "", errorOutput: errors.New("ln:3:3 syntax error (invalid closing brace `)` )")},
 		{fiql: "column=ge=invalid", stringOuput: "", errorOutput: errors.New("ln:1:17 syntax error (got `invalid` but expected number or date or duration)")},
-		{fiql: "column=in=123", stringOuput: "", errorOutput: errors.New("ln:1:13 syntax error (got `123` but expected in clause [a+b+c])")},
 		{fiql: "column=le=P1.4Y2M", stringOuput: "(column <= P1.4Y2M)", errorOutput: nil},
 		{fiql: "column=le=+P5W", stringOuput: "(column <= +P5W)", errorOutput: nil},
 		{fiql: "column=le=-P5W", stringOuput: "(column <= -P5W)", errorOutput: nil},
@@ -177,8 +173,6 @@ func (t *testTypeVisitor) VisitArgument(argument string, valueCtx ValueContext) 
 		t.raw, _ = valueCtx.AsDuration()
 	case ValueRecommendationNumber:
 		t.raw, _ = valueCtx.AsFloat64()
-	case ValueRecommendationTuple:
-		t.raw, _ = valueCtx.AsTuple()
 	default:
 		t.raw = argument
 	}
@@ -209,18 +203,6 @@ func TestRecommendedTypeStrings(t *testing.T) {
 	v := &testTypeVisitor{}
 	tree.Accept(v)
 	assert.Equal(t, "stringstring", v.String())
-}
-
-func TestRecommendedTypeTuple(t *testing.T) {
-	p := NewParser()
-	tree, err := p.Parse("title=in=[a+b]")
-	assert.NoError(t, err)
-	if err != nil {
-		return
-	}
-	v := &testTypeVisitor{}
-	tree.Accept(v)
-	assert.Equal(t, "tuple", v.String())
 }
 
 func TestRecommendedTypeNumber(t *testing.T) {
@@ -307,7 +289,6 @@ func TestJsonMarshall(t *testing.T) {
 		stringOuput string
 		errorOutput error
 	}{
-		{fiql: "column=q=value", stringOuput: `{"Type":"Expr","Operator":"","Nodes":[{"Type":"Binary","Operator":"query","Nodes":[{"Type":"Const","Value":"column"},{"Type":"Const","Value":"value"}]}]}`, errorOutput: nil},
 		{fiql: "column==value", stringOuput: `{"Type":"Expr","Operator":"","Nodes":[{"Type":"Binary","Operator":"==","Nodes":[{"Type":"Const","Value":"column"},{"Type":"Const","Value":"value"}]}]}`, errorOutput: nil},
 		{fiql: "column!=value", stringOuput: `{"Type":"Expr","Operator":"","Nodes":[{"Type":"Binary","Operator":"\u003c\u003e","Nodes":[{"Type":"Const","Value":"column"},{"Type":"Const","Value":"value"}]}]}`, errorOutput: nil},
 		{fiql: "title==foo*;(updated=lt=-P1D,title==*bar)", stringOuput: `{"Type":"Expr","Operator":"","Nodes":[{"Type":"Binary","Operator":"AND","Nodes":[{"Type":"Binary","Operator":"==","Nodes":[{"Type":"Const","Value":"title"},{"Type":"Const","Value":"foo*"}]},{"Type":"Expr","Operator":"","Nodes":[{"Type":"Binary","Operator":"OR","Nodes":[{"Type":"Binary","Operator":"\u003c","Nodes":[{"Type":"Const","Value":"updated"},{"Type":"Const","Value":"-P1D"}]},{"Type":"Binary","Operator":"==","Nodes":[{"Type":"Const","Value":"title"},{"Type":"Const","Value":"*bar"}]}]}]}]}]}`, errorOutput: nil},
