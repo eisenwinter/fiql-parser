@@ -2,7 +2,7 @@
 
 # fiql-parser
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/eisenwinter/fiql-parser)](https://goreportcard.com/report/github.com/eisenwinter/fiql-parser) [![Go](https://github.com/eisenwinter/fiql-parser/actions/workflows/go.yml/badge.svg)](https://github.com/eisenwinter/fiql-parser/actions/workflows/go.yml) [![GoDoc reference example](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/eisenwinter/fiql-parser)
+[![Go Report Card](https://goreportcard.com/badge/github.com/eisenwinter/fiql-parser)](https://goreportcard.com/report/github.com/eisenwinter/fiql-parser) [![Go](https://github.com/eisenwinter/fiql-parser/actions/workflows/go.yml/badge.svg)](https://github.com/eisenwinter/fiql-parser/actions/workflows/go.yml) [![GoDoc reference example](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/eisenwinter/fiql-parser) [![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 
 A [FIQL (Feed Item Query Language)](https://datatracker.ietf.org/doc/html/draft-nottingham-atompub-fiql-00) query parser written in golang.
 
@@ -86,7 +86,7 @@ func Example() {
 
 ## Why
 
-This is an upstream dependency for `fiql-sql-adapter`. I thought this might be useful in a standalone library at some point in time.
+This is an upstream dependency for [`fiql-sql-adapter`](https://github.com/eisenwinter/fiql-sql-adapter). I thought this might be useful in a standalone library at some point in time.
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
